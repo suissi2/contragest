@@ -813,3 +813,94 @@ contragest.core.exceptions.EmailSendingError: Failed to send message to controle
 2026-02-25 08:12:39,977 - email_manager - INFO - Sent email to controle@saphirpalace.com.tn | Queue Latency: 0.29s | Send Duration: 0.06s
 2026-02-25 08:12:40,598 - main_window - INFO - Alert already sent or checked for today. Skipping startup check.
 2026-02-25 11:13:40,071 - main_window - INFO - Alert already sent or checked for today. Skipping startup check.
+2026-02-25 12:10:30,543 - email_manager - INFO - EmailManager initialized with 3 workers.
+2026-02-25 12:10:30,544 - email_manager - INFO - Enqueued email to testauth@example.com (Task ID: 139842883869616-1772021430)
+2026-02-25 12:10:30,834 - email_manager - INFO - Enqueued email to testauth@example.com (Task ID: 139842884431632-1772021430)
+2026-02-25 12:10:31,536 - email_manager - INFO - Enqueued email to testauth@example.com (Task ID: 139842884566320-1772021431)
+2026-02-25 12:10:31,746 - email_manager - INFO - Enqueued email to testauth@example.com (Task ID: 139842884563504-1772021431)
+2026-02-25 12:11:04,218 - email_manager - INFO - EmailManager initialized with 3 workers.
+2026-02-25 12:11:04,220 - email_manager - INFO - Enqueued email to fail@test.com (Task ID: 140193252762432-1772021464)
+2026-02-25 12:11:04,221 - email_manager - INFO - Enqueued email to success@test.com (Task ID: 140193252762816-1772021464)
+2026-02-25 12:11:04,249 - email_manager - INFO - EmailWorker-0: Established new SMTP connection.
+2026-02-25 12:11:04,249 - email_manager - ERROR - Failed to send email to fail@test.com (ID: 140193252762432-1772021464): TestEmailReliability.test_retry_does_not_block.<locals>.side_effect_send() got an unexpected keyword argument 'logo_path'
+Traceback (most recent call last):
+  File "/app/contragest/core/email_manager.py", line 133, in _worker
+    email_service.send_message(
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/unittest/mock.py", line 1139, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/unittest/mock.py", line 1143, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/unittest/mock.py", line 1204, in _execute_mock_call
+    result = effect(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: TestEmailReliability.test_retry_does_not_block.<locals>.side_effect_send() got an unexpected keyword argument 'logo_path'
+2026-02-25 12:11:04,251 - email_manager - INFO - EmailWorker-1: Established new SMTP connection.
+2026-02-25 12:11:04,255 - email_manager - INFO - Scheduling retry 1/5 for fail@test.com in 2.1s. Reason: TestEmailReliability.test_retry_does_not_block.<locals>.side_effect_send() got an unexpected keyword argument 'logo_path'
+2026-02-25 12:11:04,256 - email_manager - ERROR - Failed to send email to success@test.com (ID: 140193252762816-1772021464): TestEmailReliability.test_retry_does_not_block.<locals>.side_effect_send() got an unexpected keyword argument 'logo_path'
+Traceback (most recent call last):
+  File "/app/contragest/core/email_manager.py", line 133, in _worker
+    email_service.send_message(
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/unittest/mock.py", line 1139, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/unittest/mock.py", line 1143, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/unittest/mock.py", line 1204, in _execute_mock_call
+    result = effect(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: TestEmailReliability.test_retry_does_not_block.<locals>.side_effect_send() got an unexpected keyword argument 'logo_path'
+2026-02-25 12:11:04,258 - email_manager - INFO - Scheduling retry 1/5 for success@test.com in 2.7s. Reason: TestEmailReliability.test_retry_does_not_block.<locals>.side_effect_send() got an unexpected keyword argument 'logo_path'
+2026-02-25 12:11:34,908 - email_manager - INFO - EmailManager initialized with 3 workers.
+2026-02-25 12:11:34,910 - email_manager - INFO - Enqueued email to fail@test.com (Task ID: 139634579416064-1772021494)
+2026-02-25 12:11:34,915 - email_manager - INFO - Enqueued email to success@test.com (Task ID: 139634579416448-1772021494)
+2026-02-25 12:11:34,939 - email_manager - INFO - EmailWorker-0: Established new SMTP connection.
+2026-02-25 12:11:34,940 - email_manager - ERROR - Failed to send email to fail@test.com (ID: 139634579416064-1772021494): Simulated Failure
+Traceback (most recent call last):
+  File "/app/contragest/core/email_manager.py", line 133, in _worker
+    email_service.send_message(
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/unittest/mock.py", line 1139, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/unittest/mock.py", line 1143, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/unittest/mock.py", line 1204, in _execute_mock_call
+    result = effect(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/test_email_reliability.py", line 27, in side_effect_send
+    raise Exception("Simulated Failure")
+Exception: Simulated Failure
+2026-02-25 12:11:34,941 - email_manager - INFO - EmailWorker-1: Established new SMTP connection.
+2026-02-25 12:11:34,943 - email_manager - INFO - Scheduling retry 1/5 for fail@test.com in 2.5s. Reason: Simulated Failure
+2026-02-25 12:11:34,943 - email_manager - INFO - Sent email to success@test.com | Queue Latency: 0.03s | Send Duration: 0.00s
+2026-02-25 12:15:46,943 - email_manager - INFO - EmailManager initialized with 3 workers.
+2026-02-25 12:15:46,943 - email_manager - INFO - Enqueued email to testauth@example.com (Task ID: 140175700111840-1772021746)
+2026-02-25 12:15:47,227 - email_manager - INFO - Enqueued email to testauth@example.com (Task ID: 140175699237088-1772021747)
+2026-02-25 12:15:47,937 - email_manager - INFO - Enqueued email to testauth@example.com (Task ID: 140175700909104-1772021747)
+2026-02-25 12:15:48,141 - email_manager - INFO - Enqueued email to testauth@example.com (Task ID: 140175700917552-1772021748)
+2026-02-25 12:15:49,110 - email_manager - INFO - EmailManager initialized with 3 workers.
+2026-02-25 12:15:49,112 - email_manager - INFO - Enqueued email to fail@test.com (Task ID: 140100837778432-1772021749)
+2026-02-25 12:15:49,117 - email_manager - INFO - Enqueued email to success@test.com (Task ID: 140100837778816-1772021749)
+2026-02-25 12:15:49,139 - email_manager - INFO - EmailWorker-0: Established new SMTP connection.
+2026-02-25 12:15:49,139 - email_manager - ERROR - Failed to send email to fail@test.com (ID: 140100837778432-1772021749): Simulated Failure
+Traceback (most recent call last):
+  File "/app/contragest/core/email_manager.py", line 133, in _worker
+    email_service.send_message(
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/unittest/mock.py", line 1139, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/unittest/mock.py", line 1143, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/unittest/mock.py", line 1204, in _execute_mock_call
+    result = effect(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/test_email_reliability.py", line 27, in side_effect_send
+    raise Exception("Simulated Failure")
+Exception: Simulated Failure
+2026-02-25 12:15:49,140 - email_manager - INFO - EmailWorker-1: Established new SMTP connection.
+2026-02-25 12:15:49,142 - email_manager - INFO - Scheduling retry 1/5 for fail@test.com in 2.6s. Reason: Simulated Failure
+2026-02-25 12:15:49,142 - email_manager - INFO - Sent email to success@test.com | Queue Latency: 0.03s | Send Duration: 0.00s

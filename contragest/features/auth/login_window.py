@@ -3,6 +3,7 @@ from ttkbootstrap.constants import *
 from contragest.features.auth.service import AuthService
 from contragest.lib.auth_core.ui.login import AuthLoginWindow
 from contragest.core.gui_utils import center_window
+from contragest.core.i18n import tr
 
 class AuthApp(ttk.Frame):
     def __init__(self, master, success_callback):
@@ -17,7 +18,7 @@ class AuthApp(ttk.Frame):
             master=self, 
             auth_service=self.auth_service, 
             on_success=self.on_login_success,
-            title="Contragest Login"
+            title=tr("login_title")
         )
         self.login_ui.pack(fill=BOTH, expand=YES)
         

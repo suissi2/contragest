@@ -10,7 +10,8 @@ class BackupService:
 
     def create_backup(self) -> str:
         """
-        Creates a timestamped backup of the database file.
+        Creates a timestamped backup of the database file using SQLite's backup API.
+        This is safer than shutil.copy2 as it handles active transactions better.
         Returns the path to the created backup file.
         """
         if not os.path.exists(self.db_path):
@@ -24,9 +25,17 @@ class BackupService:
         backup_filename = f"contragest_{timestamp}.db"
         backup_path = os.path.join(self.backup_dir, backup_filename)
 
+        import sqlite3
         try:
-            shutil.copy2(self.db_path, backup_path)
-            print(f"Backup created: {backup_path}")
+            # Use SQLite's online backup API
+            src = sqlite3.connect(self.db_path)
+            dst = sqlite3.connect(backup_path)
+            with dst:
+                src.backup(dst)
+            dst.close()
+            src.close()
+
+            print(f"Backup created successfully: {backup_path}")
             self._rotate_backups()
             return backup_path
         except Exception as e:

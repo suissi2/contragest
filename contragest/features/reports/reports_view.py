@@ -24,7 +24,7 @@ class ReportsView(ttk.Frame):
         # Header
         header = ttk.Frame(self, bootstyle=SECONDARY, padding=10)
         header.pack(fill=X)
-        ttk.Label(header, text="📊 " + tr("reports") if hasattr(self, "tr") else "📊 Reports", 
+        ttk.Label(header, text="📊 " + tr("reports"),
                   font=("Helvetica", 16, "bold"), bootstyle="inverse-secondary").pack(side=LEFT, padx=10)
 
         # Tab Control
@@ -32,32 +32,32 @@ class ReportsView(ttk.Frame):
         self.notebook.pack(fill=BOTH, expand=YES, padx=10, pady=10)
 
         # Tabs
-        self.tab_users = self.create_report_tab("Users", self.service.get_users_report, [
-            ("id", "ID", 50), ("username", "Username", 150), ("email", "Email", 200),
-            ("role", "Role", 100), ("status", "Status", 100), ("created_at", "Created At", 180)
-        ], filters_config={'role': ['All', 'admin', 'user'], 'status': ['All', 'Active', 'Inactive']})
+        self.tab_users = self.create_report_tab(tr("users_tab"), self.service.get_users_report, [
+            ("id", tr("id"), 50), ("username", tr("username"), 150), ("email", "Email", 200),
+            ("role", tr("role"), 100), ("status", tr("status"), 100), ("created_at", tr("created_at"), 180)
+        ], filters_config={'role': [tr('all_filter'), 'admin', 'user'], 'status': [tr('all_filter'), tr('active'), 'Inactive']})
         
-        self.tab_spy = self.create_report_tab("Spy", self.service.get_spy_report, [
-            ("id", "ID", 50), ("timestamp", "Timestamp", 160), ("username", "User", 120),
-            ("action", "Action", 150), ("entity", "Entity", 100), ("details", "Summary", 300)
-        ], filters_config={'action': ['All', 'SESSION_START', 'AUTH_ERROR', 'CREATE_CONTRACT', 'EDIT_CONTRACT', 'DELETE_CONTRACT', 'API_ACCESS']},
+        self.tab_spy = self.create_report_tab(tr("spy_tab"), self.service.get_spy_report, [
+            ("id", tr("id"), 50), ("timestamp", tr("timestamp"), 160), ("username", tr("user_label"), 120),
+            ("action", tr("action"), 150), ("entity", tr("entity"), 100), ("details", tr("summary"), 300)
+        ], filters_config={'action': [tr('all_filter'), 'SESSION_START', 'AUTH_ERROR', 'CREATE_CONTRACT', 'EDIT_CONTRACT', 'DELETE_CONTRACT', 'API_ACCESS']},
            date_filters=['timestamp'])
         
-        self.tab_employees = self.create_report_tab("Employees", self.service.get_employees_report, [
-            ("id", "ID", 50), ("first_name", "First Name", 150), ("last_name", "Last Name", 150),
-            ("email", "Email", 200), ("department", "Department", 150), ("contract_count", "Contracts", 80)
-        ], filters_config={'department': ['All', 'IT', 'HR', 'Finance', 'Engineering', 'Marketing', 'Sales', 'Operations']})
+        self.tab_employees = self.create_report_tab(tr("employees_tab"), self.service.get_employees_report, [
+            ("id", tr("id"), 50), ("first_name", tr("first_name"), 150), ("last_name", tr("last_name"), 150),
+            ("email", "Email", 200), ("department", tr("department"), 150), ("contract_count", tr("contract_count"), 80)
+        ], filters_config={'department': [tr('all_filter'), 'IT', 'HR', 'Finance', 'Engineering', 'Marketing', 'Sales', 'Operations']})
         
-        self.tab_contracts = self.create_report_tab("Contracts", self.service.get_contracts_report, [
-            ("id", "ID", 50), ("employee", "Employee", 200), ("type", "Type", 100),
-            ("start_date", "Start", 120), ("end_date", "End", 120), ("status", "Status", 120), ("days_left", "Left", 80)
-        ], filters_config={'type': ['All', 'CDI', 'CDD', 'Internship', 'Freelance'], 'status': ['All', 'Active', 'Expiring Soon', 'Expired']},
+        self.tab_contracts = self.create_report_tab(tr("contracts_tab"), self.service.get_contracts_report, [
+            ("id", tr("id"), 50), ("employee", "Employee", 200), ("type", tr("type"), 100),
+            ("start_date", tr("start_date"), 120), ("end_date", tr("end_date"), 120), ("status", tr("status"), 120), ("days_left", "Left", 80)
+        ], filters_config={'type': [tr('all_filter'), 'CDI', 'CDD', 'Internship', 'Freelance'], 'status': [tr('all_filter'), tr('active'), tr('expiring_soon'), tr('expired')]},
            date_filters=['start_date', 'end_date'])
 
-        self.notebook.add(self.tab_users, text="👥 Users")
-        self.notebook.add(self.tab_spy, text="🕵️ Spy")
-        self.notebook.add(self.tab_employees, text="👔 Employees")
-        self.notebook.add(self.tab_contracts, text="📑 Contracts")
+        self.notebook.add(self.tab_users, text="👥 " + tr("users_tab"))
+        self.notebook.add(self.tab_spy, text="🕵️ " + tr("spy_tab"))
+        self.notebook.add(self.tab_employees, text="👔 " + tr("employees_tab"))
+        self.notebook.add(self.tab_contracts, text="📑 " + tr("contracts_tab"))
 
     def create_report_tab(self, name, data_func, columns, filters_config=None, date_filters=None):
         tab = ttk.Frame(self.notebook, padding=10)
@@ -76,7 +76,7 @@ class ReportsView(ttk.Frame):
             for col_key, options in filters_config.items():
                 lbl_text = next((c[1] for c in columns if c[0] == col_key), col_key.capitalize())
                 ttk.Label(filter_frame, text=lbl_text+":").pack(side=LEFT, padx=(5, 2))
-                f_var = ttk.StringVar(value=options[0] if options else "All")
+                f_var = ttk.StringVar(value=options[0] if options else tr("all_filter"))
                 cb = ttk.Combobox(filter_frame, textvariable=f_var, values=options, state="readonly", width=12)
                 cb.pack(side=LEFT, padx=(0, 15))
                 filter_vars[col_key] = f_var
@@ -95,11 +95,11 @@ class ReportsView(ttk.Frame):
                 active_var = ttk.BooleanVar(value=False)
                 ttk.Checkbutton(date_filter_frame, text=lbl_text, variable=active_var, bootstyle="round-toggle").pack(side=LEFT, padx=(5, 5))
                 
-                ttk.Label(date_filter_frame, text="From:").pack(side=LEFT, padx=(5, 2))
+                ttk.Label(date_filter_frame, text=tr("from_label")).pack(side=LEFT, padx=(5, 2))
                 from_date = ttk.DateEntry(date_filter_frame, dateformat="%Y-%m-%d")
                 from_date.pack(side=LEFT, padx=(0, 10))
                 
-                ttk.Label(date_filter_frame, text="To:").pack(side=LEFT, padx=(5, 2))
+                ttk.Label(date_filter_frame, text=tr("to_label")).pack(side=LEFT, padx=(5, 2))
                 to_date = ttk.DateEntry(date_filter_frame, dateformat="%Y-%m-%d")
                 to_date.pack(side=LEFT, padx=(0, 20))
                 
@@ -109,16 +109,16 @@ class ReportsView(ttk.Frame):
                     'to_entry': to_date
                 }
         
-        ttk.Button(filter_frame, text="🔄 Refresh", bootstyle=INFO, 
+        ttk.Button(filter_frame, text="🔄 " + tr("refresh_label"), bootstyle=INFO,
                    command=lambda: self.refresh_tab(name, data_func, columns, table, search_var, filter_vars, date_filter_vars)).pack(side=LEFT, padx=5)
                    
         export_buttons_frame = ttk.Frame(filter_frame)
         export_buttons_frame.pack(side=RIGHT, padx=5)
         
-        ttk.Button(export_buttons_frame, text="📤 Export CSV", bootstyle=SUCCESS,
+        ttk.Button(export_buttons_frame, text="📤 " + tr("export_csv_label"), bootstyle=SUCCESS,
                    command=lambda: self.export_csv(name, columns, table)).pack(side=LEFT, padx=2)
                    
-        ttk.Button(export_buttons_frame, text="📥 Export PDF", bootstyle="danger",
+        ttk.Button(export_buttons_frame, text="📥 " + tr("export_pdf_label"), bootstyle="danger",
                    command=lambda: self.export_pdf(name, columns, table)).pack(side=LEFT, padx=2)
 
         # Table
@@ -291,7 +291,7 @@ class ReportsView(ttk.Frame):
         # Extract direct table rows which inherently represent the currently filtered data
         filtered_rows = table.get_rows()
         if not filtered_rows:
-            Messagebox.show_info("No data available to export.", "Export")
+            Messagebox.show_info(tr("no_data_export"), "Export")
             return
             
         col_headers = [c[1] for c in columns]
@@ -310,15 +310,15 @@ class ReportsView(ttk.Frame):
                     writer = csv.writer(f)
                     writer.writerow(col_headers)
                     writer.writerows(data)
-                Messagebox.show_info(f"CSV Report exported to {file_path}", "Success")
+                Messagebox.show_info(tr("export_success_csv").format(path=file_path), tr("success"))
             except Exception as e:
-                Messagebox.show_error(f"Failed to export CSV: {e}", "Error")
+                Messagebox.show_error(f"Failed to export CSV: {e}", tr("error"))
 
     def export_pdf(self, name, columns, table):
         # Extract filtered data from the active Tableview
         filtered_rows = table.get_rows()
         if not filtered_rows:
-            Messagebox.show_info("No data available to export.", "Export")
+            Messagebox.show_info(tr("no_data_export"), "Export")
             return
             
         file_path = filedialog.asksaveasfilename(
@@ -396,7 +396,7 @@ class ReportsView(ttk.Frame):
                 fill = not fill
 
             pdf.output(file_path)
-            Messagebox.show_info(f"PDF Report cleanly exported to {file_path}", "Success")
+            Messagebox.show_info(tr("export_success_pdf").format(path=file_path), tr("success"))
             
         except Exception as e:
             Messagebox.show_error(f"An error occurred during PDF generation:\n{e}", "Export Error")

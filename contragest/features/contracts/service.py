@@ -6,8 +6,9 @@ from contragest.logic.backup import backup_service
 import json
 
 class ContractService:
-    def __init__(self, session: Session):
+    def __init__(self, session: Session, auth_service=None):
         self.session = session
+        self.auth_service = auth_service
 
     def validate_dates(self, start_date: date, end_date: Optional[date]) -> Tuple[bool, str]:
         """Ensures start date is before end date (if end date exists)."""
@@ -66,15 +67,14 @@ class ContractService:
         self.session.commit()
         
         # 3. Audit Logging
-        if user_id:
-            from contragest.features.auth.service import AuthService
+        if user_id and self.auth_service:
             details = {
                 "employee_id": employee_id,
                 "type": contract_type,
                 "start": str(start_date),
                 "end": str(end_date)
             }
-            AuthService().log_action(user_id, "CONTRACT_CREATED", json.dumps(details), affected_entity="CONTRACT", entity_id=contract.id)
+            self.auth_service.log_action(user_id, "CONTRACT_CREATED", json.dumps(details), affected_entity="CONTRACT", entity_id=contract.id)
 
         backup_service.create_backup()
         return contract
@@ -116,9 +116,8 @@ class ContractService:
         self.session.commit()
 
         # 2. Audit Logging
-        if user_id:
-            from contragest.features.auth.service import AuthService
-            AuthService().log_action(user_id, "CONTRACT_DELETED", f"Deleted contract for {employee_name}", affected_entity="CONTRACT", entity_id=contract_id)
+        if user_id and self.auth_service:
+            self.auth_service.log_action(user_id, "CONTRACT_DELETED", f"Deleted contract for {employee_name}", affected_entity="CONTRACT", entity_id=contract_id)
 
         backup_service.create_backup()
         return True
@@ -161,9 +160,8 @@ class ContractService:
         self.session.commit()
 
         # 4. Audit Logging
-        if user_id:
-            from contragest.features.auth.service import AuthService
-            AuthService().log_action(user_id, "CONTRACT_RECOVERED", f"Recovered contract for {archive.first_name} {archive.last_name}", affected_entity="CONTRACT", entity_id=contract.id)
+        if user_id and self.auth_service:
+            self.auth_service.log_action(user_id, "CONTRACT_RECOVERED", f"Recovered contract for {archive.first_name} {archive.last_name}", affected_entity="CONTRACT", entity_id=contract.id)
 
         backup_service.create_backup()
         return contract
@@ -224,8 +222,7 @@ class ContractService:
         self.session.commit()
 
         # 6. Audit Logging
-        if user_id:
-            from contragest.features.auth.service import AuthService
+        if user_id and self.auth_service:
             after_state = {
                 "first_name": first_name,
                 "last_name": last_name,
@@ -238,7 +235,7 @@ class ContractService:
                 "after": after_state,
                 "reason": change_reason
             }
-            AuthService().log_action(user_id, "CONTRACT_UPDATED", json.dumps(details), affected_entity="CONTRACT", entity_id=contract_id)
+            self.auth_service.log_action(user_id, "CONTRACT_UPDATED", json.dumps(details), affected_entity="CONTRACT", entity_id=contract_id)
 
         backup_service.create_backup()
         return contract

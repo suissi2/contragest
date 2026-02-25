@@ -14,7 +14,7 @@ class CompanyManagerWindow(ttk.Toplevel):
     def __init__(self, parent):
         super().__init__(parent)
         self.parent_window = parent  # Explicit reference to MainWindow
-        self.title("Saisie et M.à.j Société")
+        self.title(tr("company_manager_title"))
         self.geometry("1150x850")
         self.center_window()
         self.resizable(True, True)
@@ -128,10 +128,10 @@ class CompanyManagerWindow(ttk.Toplevel):
         grid_frame.grid_rowconfigure(0, weight=1)
         
         headings = [
-            "Code", "Raison Sociale", "Responsable", "Contact(s)", "Site Web",
-            "Email", "Adresse", "Code Postal", "Ville", "Téléphone", "Fax",
-            "Téléx", "Bébé Gratuit", "Utilisation FI", "Forme Juridique",
-            "Code TVA", "Catégories", "Pays", "lblCodePays", "Secteur Géographique", "Devise"
+            tr("code"), tr("company_name"), "Responsable", tr("contact"), tr("web_site"),
+            "Email", tr("address"), tr("zip_code"), tr("city"), tr("phone"), tr("fax"),
+            tr("telex"), tr("free") + " (Bébé)", "Utilisation FI", tr("legal_form"),
+            tr("vat_code"), tr("categories"), tr("country"), "lblCodePays", tr("geo_sector"), tr("currency")
         ]
         
         for col, head in zip(columns, headings):
@@ -152,14 +152,15 @@ class CompanyManagerWindow(ttk.Toplevel):
         tabs_frame.pack(side=LEFT, padx=5)
         
         tabs = [
-            ("📝", "Général"), ("📱", "Contact(s)"), ("⚙️", "Option(s)"), 
-            ("👔", "Administratif"), ("📧", "Messagerie"), ("☁️", "Applications"), 
-            ("🖥️", "lblServeurs"), ("📜", "Stamp")
+            ("📝", tr("general"), "general"), ("📱", tr("contact"), "contact"),
+            ("⚙️", tr("options"), "options"), ("👔", tr("administrative"), "administrative"),
+            ("📧", tr("messaging"), "messaging"), ("☁️", tr("applications"), "applications"),
+            ("🖥️", tr("servers"), "servers"), ("📜", tr("stamp"), "stamp")
         ]
         
-        for icon, tab_name in tabs:
+        for icon, tab_name, tab_key in tabs:
             btn = ttk.Button(tabs_frame, text=f"{icon} {tab_name}", bootstyle="link", 
-                             command=lambda t=tab_name: self.show_tab(t))
+                             command=lambda k=tab_key: self.show_tab(k))
             btn.pack(side=LEFT, padx=2)
 
     def build_bottom_tabs_container(self):
@@ -168,18 +169,18 @@ class CompanyManagerWindow(ttk.Toplevel):
         self.bottom_container.pack(fill=X, side=BOTTOM, expand=False)
         self.bottom_container.pack_propagate(False) # Keep fixed height regardless of content
         
-        # Build individual tab frames
-        self.tabs_dict["Général"] = self.build_general_tab()
-        self.tabs_dict["Contact(s)"] = self.build_contact_tab()
-        self.tabs_dict["Option(s)"] = self.build_option_tab()
-        self.tabs_dict["Administratif"] = self.build_admin_tab()
-        self.tabs_dict["Messagerie"] = self.build_messagerie_tab()
-        self.tabs_dict["Applications"] = self.build_app_tab()
-        self.tabs_dict["lblServeurs"] = self.build_serveurs_tab()
-        self.tabs_dict["Stamp"] = self.build_stamp_tab()
+        # Build individual tab frames using stable internal keys
+        self.tabs_dict["general"] = self.build_general_tab()
+        self.tabs_dict["contact"] = self.build_contact_tab()
+        self.tabs_dict["options"] = self.build_option_tab()
+        self.tabs_dict["administrative"] = self.build_admin_tab()
+        self.tabs_dict["messaging"] = self.build_messagerie_tab()
+        self.tabs_dict["applications"] = self.build_app_tab()
+        self.tabs_dict["servers"] = self.build_serveurs_tab()
+        self.tabs_dict["stamp"] = self.build_stamp_tab()
         
         # Show default tab
-        self.show_tab("Général")
+        self.show_tab("general")
 
     def show_tab(self, tab_name):
         for frame in self.tabs_dict.values():
@@ -238,8 +239,8 @@ class CompanyManagerWindow(ttk.Toplevel):
         # Main form actions on Right side
         right_actions = ttk.Frame(action_bar, bootstyle="secondary")
         right_actions.pack(side=RIGHT, padx=5, pady=2)
-        ttk.Button(right_actions, text="💾 Enregistrer", bootstyle="success", command=self.save_company).pack(side=LEFT, padx=2)
-        ttk.Button(right_actions, text="❌ Fermer", bootstyle="secondary", command=self.destroy).pack(side=LEFT, padx=2)
+        ttk.Button(right_actions, text="💾 " + tr("save_label"), bootstyle="success", command=self.save_company).pack(side=LEFT, padx=2)
+        ttk.Button(right_actions, text="❌ " + tr("close"), bootstyle="secondary", command=self.destroy).pack(side=LEFT, padx=2)
 
     def add_form_row(self, parent, label_text, variable, width=32):
         row = parent.grid_size()[1]
@@ -252,26 +253,26 @@ class CompanyManagerWindow(ttk.Toplevel):
         
         left_col = ttk.Frame(frame, bootstyle="light")
         left_col.pack(side=LEFT, fill=Y, padx=(10, 50))
-        self.add_form_row(left_col, "Code", self.v_code)
-        self.add_form_row(left_col, "Raison Sociale", self.v_raison_sociale)
+        self.add_form_row(left_col, tr("code"), self.v_code)
+        self.add_form_row(left_col, tr("company_name"), self.v_raison_sociale)
         
-        ttk.Label(left_col, text="Catégories", width=15, anchor=W, bootstyle="light").grid(column=0, row=2, pady=2, sticky=W)
+        ttk.Label(left_col, text=tr("categories"), width=15, anchor=W, bootstyle="light").grid(column=0, row=2, pady=2, sticky=W)
         ttk.Combobox(left_col, textvariable=self.v_categories, width=30).grid(row=2, column=1, pady=2, sticky=W)
-        ttk.Label(left_col, text="Forme Juridique", width=15, anchor=W, bootstyle="light").grid(column=0, row=3, pady=2, sticky=W)
+        ttk.Label(left_col, text=tr("legal_form"), width=15, anchor=W, bootstyle="light").grid(column=0, row=3, pady=2, sticky=W)
         ttk.Combobox(left_col, textvariable=self.v_forme_juridique, width=30).grid(row=3, column=1, pady=2, sticky=W)
-        self.add_form_row(left_col, "Activité", self.v_activite)
+        self.add_form_row(left_col, tr("activity"), self.v_activite)
 
         right_col = ttk.Frame(frame, bootstyle="light")
         right_col.pack(side=RIGHT, fill=Y, padx=(50, 10))
-        ttk.Label(right_col, text="Secteur Géographique", width=20, anchor=W, bootstyle="light").grid(column=0, row=0, pady=2, sticky=W)
+        ttk.Label(right_col, text=tr("geo_sector"), width=20, anchor=W, bootstyle="light").grid(column=0, row=0, pady=2, sticky=W)
         ttk.Combobox(right_col, textvariable=self.v_secteur_geo, width=30).grid(row=0, column=1, pady=2, sticky=W)
         
-        ttk.Label(right_col, text="Date de Création", width=20, anchor=W, bootstyle="light").grid(column=0, row=1, pady=2, sticky=W)
+        ttk.Label(right_col, text=tr("creation_date"), width=20, anchor=W, bootstyle="light").grid(column=0, row=1, pady=2, sticky=W)
         self.date_picker = DateEntry(right_col, width=28)
         self.date_picker.grid(row=1, column=1, pady=2, sticky=W)
         
-        self.add_form_row(right_col, "Représentant Juridique", self.v_representant)
-        self.add_form_row(right_col, "Qualité", self.v_qualite)
+        self.add_form_row(right_col, tr("legal_rep"), self.v_representant)
+        self.add_form_row(right_col, tr("quality"), self.v_qualite)
         return frame
 
     def build_contact_tab(self):
@@ -281,28 +282,28 @@ class CompanyManagerWindow(ttk.Toplevel):
         left_col.pack(side=LEFT, fill=Y, padx=(10, 50))
         
         # Override add_form_row specifically for Adresse which needs to be larger
-        ttk.Label(left_col, text="Adresse", width=12, anchor=NW, bootstyle="light").grid(column=0, row=0, pady=2, sticky=NW)
+        ttk.Label(left_col, text=tr("address"), width=12, anchor=NW, bootstyle="light").grid(column=0, row=0, pady=2, sticky=NW)
         ttk.Entry(left_col, textvariable=self.v_adresse, width=50).grid(row=0, column=1, pady=2, sticky=W)
         
-        ttk.Label(left_col, text="Ville", width=12, anchor=W, bootstyle="light").grid(column=0, row=1, pady=2, sticky=W)
+        ttk.Label(left_col, text=tr("city"), width=12, anchor=W, bootstyle="light").grid(column=0, row=1, pady=2, sticky=W)
         ttk.Entry(left_col, textvariable=self.v_ville, width=40).grid(row=1, column=1, pady=2, sticky=W)
         
-        ttk.Label(left_col, text="Code Postal", width=12, anchor=W, bootstyle="light").grid(column=0, row=2, pady=2, sticky=W)
+        ttk.Label(left_col, text=tr("zip_code"), width=12, anchor=W, bootstyle="light").grid(column=0, row=2, pady=2, sticky=W)
         ttk.Spinbox(left_col, textvariable=self.v_code_postal, width=10, from_=0, to=99999).grid(row=2, column=1, pady=2, sticky=W)
         
-        ttk.Label(left_col, text="Pays", width=12, anchor=W, bootstyle="light").grid(column=0, row=3, pady=2, sticky=W)
+        ttk.Label(left_col, text=tr("country"), width=12, anchor=W, bootstyle="light").grid(column=0, row=3, pady=2, sticky=W)
         ttk.Combobox(left_col, textvariable=self.v_pays, width=30).grid(row=3, column=1, pady=2, sticky=W)
 
         right_col = ttk.Frame(frame, bootstyle="light")
         right_col.pack(side=RIGHT, fill=Y, padx=(50, 10))
         
-        ttk.Label(right_col, text="Téléphone", width=15, anchor=W, bootstyle="light").grid(column=0, row=0, pady=2, sticky=W)
+        ttk.Label(right_col, text=tr("phone"), width=15, anchor=W, bootstyle="light").grid(column=0, row=0, pady=2, sticky=W)
         ttk.Entry(right_col, textvariable=self.v_telephone, width=30).grid(row=0, column=1, pady=2, sticky=W)
-        ttk.Label(right_col, text="Fax", width=15, anchor=W, bootstyle="light").grid(column=0, row=1, pady=2, sticky=W)
+        ttk.Label(right_col, text=tr("fax"), width=15, anchor=W, bootstyle="light").grid(column=0, row=1, pady=2, sticky=W)
         ttk.Entry(right_col, textvariable=self.v_fax, width=30).grid(row=1, column=1, pady=2, sticky=W)
-        ttk.Label(right_col, text="Téléx", width=15, anchor=W, bootstyle="light").grid(column=0, row=2, pady=2, sticky=W)
+        ttk.Label(right_col, text=tr("telex"), width=15, anchor=W, bootstyle="light").grid(column=0, row=2, pady=2, sticky=W)
         ttk.Entry(right_col, textvariable=self.v_telex, width=30).grid(row=2, column=1, pady=2, sticky=W)
-        ttk.Label(right_col, text="Site Web", width=15, anchor=W, bootstyle="light").grid(column=0, row=3, pady=2, sticky=W)
+        ttk.Label(right_col, text=tr("web_site"), width=15, anchor=W, bootstyle="light").grid(column=0, row=3, pady=2, sticky=W)
         ttk.Entry(right_col, textvariable=self.v_site_web, width=30).grid(row=3, column=1, pady=2, sticky=W)
 
         return frame
@@ -314,14 +315,14 @@ class CompanyManagerWindow(ttk.Toplevel):
         left_col = ttk.Frame(frame, bootstyle="light")
         left_col.pack(side=LEFT, fill=Y, padx=(5, 20))
         
-        ttk.Checkbutton(left_col, text="Utilisation FDCST", variable=self.v_utilisation_fdcst, bootstyle="round-toggle,light").pack(anchor=W, pady=2)
-        ttk.Checkbutton(left_col, text="Facturation Coffre /Jour", variable=self.v_facturation_coffre, bootstyle="round-toggle,light").pack(anchor=W, pady=2)
-        ttk.Checkbutton(left_col, text="Contrôle Nom PAX", variable=self.v_controle_nom_pax, bootstyle="round-toggle,light").pack(anchor=W, pady=2)
+        ttk.Checkbutton(left_col, text=tr("use_fdcst"), variable=self.v_utilisation_fdcst, bootstyle="round-toggle,light").pack(anchor=W, pady=2)
+        ttk.Checkbutton(left_col, text=tr("safe_billing"), variable=self.v_facturation_coffre, bootstyle="round-toggle,light").pack(anchor=W, pady=2)
+        ttk.Checkbutton(left_col, text=tr("pax_name_control"), variable=self.v_controle_nom_pax, bootstyle="round-toggle,light").pack(anchor=W, pady=2)
         
-        ttk.Label(left_col, text="Devise", bootstyle="light").pack(anchor=W, pady=(10,0))
+        ttk.Label(left_col, text=tr("currency"), bootstyle="light").pack(anchor=W, pady=(10,0))
         ttk.Combobox(left_col, textvariable=self.v_devise, width=20, values=["Dinar Tunisien", "Euro", "USD"]).pack(anchor=W)
         
-        ttk.Label(left_col, text="Nationalité", bootstyle="light").pack(anchor=W, pady=(5,0))
+        ttk.Label(left_col, text=tr("nationality"), bootstyle="light").pack(anchor=W, pady=(5,0))
         ttk.Combobox(left_col, textvariable=self.v_nationalite, width=20, values=["Résidents Tunisiens"]).pack(anchor=W)
 
         # Middle Groups
@@ -329,10 +330,10 @@ class CompanyManagerWindow(ttk.Toplevel):
         mid_col.pack(side=LEFT, fill=Y, padx=20)
         
         # Taxe Sejour Group
-        taxe_frame = ttk.LabelFrame(mid_col, text="Taxe Séjour")
+        taxe_frame = ttk.LabelFrame(mid_col, text=tr("stay_tax"))
         taxe_frame.pack(fill=X, pady=5)
-        ttk.Checkbutton(taxe_frame, text="Taxe Séjour", variable=self.v_taxe_sejour).grid(row=0, column=0, columnspan=2, pady=2, padx=5, sticky=W)
-        ttk.Label(taxe_frame, text="Transaction", bootstyle="light").grid(row=1, column=0, pady=2, padx=5)
+        ttk.Checkbutton(taxe_frame, text=tr("stay_tax"), variable=self.v_taxe_sejour).grid(row=0, column=0, columnspan=2, pady=2, padx=5, sticky=W)
+        ttk.Label(taxe_frame, text=tr("transaction"), bootstyle="light").grid(row=1, column=0, pady=2, padx=5)
         ttk.Entry(taxe_frame, textvariable=self.v_transaction_taxe, width=25).grid(row=1, column=1, pady=2, padx=5)
         
         # Gestion Group Container
@@ -340,37 +341,37 @@ class CompanyManagerWindow(ttk.Toplevel):
         gestion_container.pack(fill=X, pady=5)
         
         # Bebes
-        b_frame = ttk.LabelFrame(gestion_container, text="Gestion des bébés")
+        b_frame = ttk.LabelFrame(gestion_container, text=tr("baby_management"))
         b_frame.pack(side=LEFT, padx=2)
-        ttk.Checkbutton(b_frame, text="Gratuit", variable=self.v_bebe_gratuit).pack(anchor=W, padx=5)
-        ttk.Checkbutton(b_frame, text="Gestion", variable=self.v_bebe_gestion).pack(anchor=W, padx=5)
+        ttk.Checkbutton(b_frame, text=tr("free"), variable=self.v_bebe_gratuit).pack(anchor=W, padx=5)
+        ttk.Checkbutton(b_frame, text=tr("management"), variable=self.v_bebe_gestion).pack(anchor=W, padx=5)
         hf = ttk.Frame(b_frame)
         hf.pack(anchor=W, padx=5, pady=2)
-        ttk.Label(hf, text="Nbre.Maxim").pack(side=LEFT)
+        ttk.Label(hf, text=tr("max_number")).pack(side=LEFT)
         ttk.Spinbox(hf, textvariable=self.v_bebe_max, width=4, from_=0, to=10).pack(side=LEFT)
 
         # Enfants
-        e_frame = ttk.LabelFrame(gestion_container, text="Gestion des enfants")
+        e_frame = ttk.LabelFrame(gestion_container, text=tr("child_management"))
         e_frame.pack(side=LEFT, padx=2, fill=Y)
-        ttk.Checkbutton(e_frame, text="Gestion", variable=self.v_enfant_gestion).pack(anchor=W, padx=5)
+        ttk.Checkbutton(e_frame, text=tr("management"), variable=self.v_enfant_gestion).pack(anchor=W, padx=5)
         hf2 = ttk.Frame(e_frame)
         hf2.pack(anchor=W, padx=5, pady=2)
-        ttk.Label(hf2, text="Nbre.Maxim").pack(side=LEFT)
+        ttk.Label(hf2, text=tr("max_number")).pack(side=LEFT)
         ttk.Spinbox(hf2, textvariable=self.v_enfant_max, width=4, from_=0, to=10).pack(side=LEFT)
         
         # Adultes
-        a_frame = ttk.LabelFrame(gestion_container, text="Gestion des adultes")
+        a_frame = ttk.LabelFrame(gestion_container, text=tr("adult_management"))
         a_frame.pack(side=LEFT, padx=2, fill=Y)
         hf3 = ttk.Frame(a_frame)
         hf3.pack(anchor=W, padx=5, pady=2)
-        ttk.Label(hf3, text="Nbre.Maxim").pack(side=LEFT)
+        ttk.Label(hf3, text=tr("max_number")).pack(side=LEFT)
         ttk.Spinbox(hf3, textvariable=self.v_adulte_max, width=4, from_=0, to=10).pack(side=LEFT)
 
         # Right Logo
-        logo_frame = ttk.LabelFrame(frame, text="Logo")
+        logo_frame = ttk.LabelFrame(frame, text=tr("logo"))
         logo_frame.pack(side=RIGHT, fill=Y, padx=10)
         
-        self.lbl_logo = ttk.Label(logo_frame, text="[No Logo Selected]", width=25, anchor=CENTER)
+        self.lbl_logo = ttk.Label(logo_frame, text=tr("no_logo_selected"), width=25, anchor=CENTER)
         self.lbl_logo.pack(side=LEFT, padx=10, fill=BOTH, expand=YES)
         
         btn_frame = ttk.Frame(logo_frame)
@@ -385,12 +386,12 @@ class CompanyManagerWindow(ttk.Toplevel):
         col = ttk.Frame(frame, bootstyle="light")
         col.pack(side=LEFT, fill=Y, padx=10)
         
-        self.add_form_row(col, "Code TVA", self.v_code_tva, width=40)
-        self.add_form_row(col, "Police Assurance", self.v_police_assurance, width=40)
-        self.add_form_row(col, "Code Sécurité Sociale", self.v_code_securite_sociale, width=40)
+        self.add_form_row(col, tr("vat_code"), self.v_code_tva, width=40)
+        self.add_form_row(col, tr("insurance_policy"), self.v_police_assurance, width=40)
+        self.add_form_row(col, tr("social_security_code"), self.v_code_securite_sociale, width=40)
         
         row = 3
-        ttk.Label(col, text="Capital Social", width=15, anchor=W, bootstyle="light").grid(row=row, column=0, pady=2, sticky=W)
+        ttk.Label(col, text=tr("share_capital"), width=15, anchor=W, bootstyle="light").grid(row=row, column=0, pady=2, sticky=W)
         ttk.Spinbox(col, textvariable=self.v_capital_social, width=15, format="%.3f").grid(row=row, column=1, pady=2, sticky=W)
         return frame
 
@@ -398,7 +399,7 @@ class CompanyManagerWindow(ttk.Toplevel):
         frame = ttk.Frame(self.bottom_container, padding=2, bootstyle="light")
         
         cols = ("type", "email", "login", "password", "smtp", "port", "ssl", "auth")
-        heads = ["Type", "Email", "lblEmailLogin", "Mot de Passe", "SMTP", "lblPORT", "SSL", "Authentifier"]
+        heads = ["Type", "Email", "lblEmailLogin", tr("password_label"), "SMTP", "lblPORT", "SSL", "Authentifier"]
         
         self.mail_tree = ttk.Treeview(frame, columns=cols, show="headings", height=6)
         for c, h in zip(cols, heads):
@@ -413,7 +414,7 @@ class CompanyManagerWindow(ttk.Toplevel):
         group = ttk.LabelFrame(frame, text="My Hotix Guest")
         group.pack(anchor=NW, fill=X, padx=10, pady=5)
         
-        ttk.Label(group, text="Dossier", width=10).pack(side=LEFT, padx=5, pady=10)
+        ttk.Label(group, text=tr("folder"), width=10).pack(side=LEFT, padx=5, pady=10)
         ttk.Entry(group, textvariable=self.v_dossier_hotix, width=40).pack(side=LEFT, padx=5, pady=10)
         ttk.Button(group, text="📁").pack(side=LEFT, padx=5, pady=10)
         return frame
@@ -425,19 +426,19 @@ class CompanyManagerWindow(ttk.Toplevel):
         
         inner = ttk.Frame(group)
         inner.pack(anchor=NW, padx=10, pady=5)
-        self.add_form_row(inner, "URL", self.v_ftp_url, width=40)
-        self.add_form_row(inner, "Utilisateur", self.v_ftp_user, width=40)
-        self.add_form_row(inner, "Mot De Passe", self.v_ftp_pass, width=40)
+        self.add_form_row(inner, tr("url"), self.v_ftp_url, width=40)
+        self.add_form_row(inner, tr("user_label"), self.v_ftp_user, width=40)
+        self.add_form_row(inner, tr("password_label"), self.v_ftp_pass, width=40)
         return frame
 
     def build_stamp_tab(self):
         frame = ttk.Frame(self.bottom_container, padding=10, bootstyle="light")
         
         # Right Stamp
-        stamp_frame = ttk.LabelFrame(frame, text="Stamp")
+        stamp_frame = ttk.LabelFrame(frame, text=tr("stamp"))
         stamp_frame.pack(side=RIGHT, fill=Y, padx=10)
         
-        self.lbl_stamp = ttk.Label(stamp_frame, text="[No Stamp Selected]", width=25, anchor=CENTER)
+        self.lbl_stamp = ttk.Label(stamp_frame, text=tr("no_stamp_selected"), width=25, anchor=CENTER)
         self.lbl_stamp.pack(side=LEFT, padx=10, fill=BOTH, expand=YES)
         
         btn_frame = ttk.Frame(stamp_frame)
@@ -463,9 +464,9 @@ class CompanyManagerWindow(ttk.Toplevel):
                 self.photo = ImageTk.PhotoImage(img)
                 self.lbl_logo.config(image=self.photo, text="")
             except Exception as e:
-                self.lbl_logo.config(text="[Error loading image]", image='')
+                self.lbl_logo.config(text=tr("error_loading_image"), image='')
         else:
-             self.lbl_logo.config(text="[No Logo Selected]", image='')
+             self.lbl_logo.config(text=tr("no_logo_selected"), image='')
 
     def upload_stamp(self):
         path = filedialog.askopenfilename(filetypes=[("Image Files", "*.png;*.jpg;*.jpeg;*.gif")])
@@ -483,9 +484,9 @@ class CompanyManagerWindow(ttk.Toplevel):
                     self.photo_stamp = ImageTk.PhotoImage(img)
                     self.lbl_stamp.config(image=self.photo_stamp, text="")
                 except Exception as e:
-                    self.lbl_stamp.config(text="[Error loading image]", image='')
+                    self.lbl_stamp.config(text=tr("error_loading_image"), image='')
             else:
-                 self.lbl_stamp.config(text="[No Stamp Selected]", image='')
+                 self.lbl_stamp.config(text=tr("no_stamp_selected"), image='')
 
     def load_grid_data(self):
         for item in self.tree.get_children():
@@ -664,14 +665,14 @@ class CompanyManagerWindow(ttk.Toplevel):
         for item in self.mail_tree.get_children():
             self.mail_tree.delete(item)
         
-        self.show_tab("Général")
+        self.show_tab("general")
     
     def cmd_edit(self):
         """Switch to edit mode for the current record."""
         if not self.current_company_id:
-            Messagebox.show_warning("Veuillez sélectionner un enregistrement à modifier.", "Aucune sélection")
+            Messagebox.show_warning(tr("select_to_edit"), tr("no_selection"))
             return
-        self.show_tab("Général")
+        self.show_tab("general")
         # Focus the Raison Sociale field for immediate editing
         for widget in self.winfo_children():
             self._focus_first_entry(widget)
@@ -690,9 +691,9 @@ class CompanyManagerWindow(ttk.Toplevel):
             
     def cmd_delete(self):
         if not self.current_company_id:
-            Messagebox.show_warning("Veuillez sélectionner un enregistrement à supprimer.", "Aucune sélection")
+            Messagebox.show_warning(tr("select_to_delete"), tr("no_selection"))
             return
-        response = Messagebox.yesno("Êtes-vous sûr de vouloir supprimer ce profil ?", "Confirmer la suppression")
+        response = Messagebox.yesno(tr("confirm_profile_delete"), tr("confirm_delete"))
         if response == "Yes":
             p = self.session.get(CompanyProfile, self.current_company_id)
             if p:
@@ -734,21 +735,21 @@ class CompanyManagerWindow(ttk.Toplevel):
         rs = self.v_raison_sociale.get().strip()
         
         if not code or not rs:
-            Messagebox.show_warning("Code et Raison Sociale sont obligatoires.", "Champs manquants")
+            Messagebox.show_warning(tr("code_name_required"), tr("missing_fields"))
             return
         
         # Use ID-based lookup for existing records (allows code changes)
         if self.current_company_id:
             p = self.session.get(CompanyProfile, self.current_company_id)
             if not p:
-                Messagebox.show_warning("Enregistrement introuvable.", "Erreur")
+                Messagebox.show_warning(tr("record_not_found"), tr("error"))
                 return
             p.code = code  # Allow code update
         else:
             # New record: check for duplicate code
             existing = self.session.query(CompanyProfile).filter_by(code=code).first()
             if existing:
-                Messagebox.show_warning(f"Le code '{code}' existe déjà.", "Doublon")
+                Messagebox.show_warning(tr("code_exists").format(code=code), tr("duplicate"))
                 return
             p = CompanyProfile(code=code)
             self.session.add(p)
@@ -866,4 +867,4 @@ class CompanyManagerWindow(ttk.Toplevel):
                 self.tree.see(item)
                 break
         
-        Messagebox.show_info("Profil société enregistré avec succès !", "Succès")
+        Messagebox.show_info(tr("profile_saved"), tr("success"))
