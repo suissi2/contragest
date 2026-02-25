@@ -1,0 +1,27 @@
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "C:\Program Files\Python314\Lib\tkinter\__init__.py", line 2082, in __call__
+    return self.func(*args)
+           ~~~~~~~~~^^^^^^^
+  File "C:\Users\Chef_Controle\Desktop\Dev\Python\Antigravity\Contragest\contragest\lib\auth_core\ui\login.py", line 50, in <lambda>
+    password_entry.bind("<Return>", lambda e: self._do_login())
+                                              ~~~~~~~~~~~~~~^^
+  File "C:\Users\Chef_Controle\Desktop\Dev\Python\Antigravity\Contragest\contragest\lib\auth_core\ui\login.py", line 88, in _do_login
+    self.on_success(user)
+    ~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Chef_Controle\Desktop\Dev\Python\Antigravity\Contragest\contragest\features\auth\login_window.py", line 30, in on_login_success
+    self.success_callback(user)
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Chef_Controle\Desktop\Dev\Python\Antigravity\Contragest\main.py", line 38, in on_login_success
+    self.show_dashboard()
+    ~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Chef_Controle\Desktop\Dev\Python\Antigravity\Contragest\main.py", line 46, in show_dashboard
+    self.current_frame = MainWindow(self.root, self.current_user, logout_callback=self.show_login)
+                         ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Chef_Controle\Desktop\Dev\Python\Antigravity\Contragest\contragest\features\dashboard\main_window.py", line 27, in __init__
+    self.auth_service = AuthService()
+                        ^^^^^^^^^^^
+UnboundLocalError: cannot access local variable 'AuthService' where it is not associated with a value
+Initializing Contragest...
+Schema check: role_id column already exists.
+Databases initialized.

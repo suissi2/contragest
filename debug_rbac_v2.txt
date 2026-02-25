@@ -1,0 +1,126 @@
+Initializing Database...
+Syncing legacy roles...
+AuthService Error logging action: (sqlite3.OperationalError) no such column: users.role_id
+[SQL: SELECT users.id AS users_id, users.username AS users_username, users.email AS users_email, users.password_hash AS users_password_hash, users.salt AS users_salt, users.role AS users_role, users.role_id AS users_role_id, users.is_active AS users_is_active, users.activation_token AS users_activation_token, users.otp_attempts AS users_otp_attempts, users.otp_created_at AS users_otp_created_at, users.created_at AS users_created_at, users.reset_token AS users_reset_token, users.reset_token_created_at AS users_reset_token_created_at, users.reset_attempts AS users_reset_attempts, users.failed_login_attempts AS users_failed_login_attempts, users.locked_until AS users_locked_until 
+FROM users 
+WHERE users.id = ?]
+[parameters: (0,)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+AuthService Error logging action: (sqlite3.OperationalError) no such column: users.role_id
+[SQL: SELECT users.id AS users_id, users.username AS users_username, users.email AS users_email, users.password_hash AS users_password_hash, users.salt AS users_salt, users.role AS users_role, users.role_id AS users_role_id, users.is_active AS users_is_active, users.activation_token AS users_activation_token, users.otp_attempts AS users_otp_attempts, users.otp_created_at AS users_otp_created_at, users.created_at AS users_created_at, users.reset_token AS users_reset_token, users.reset_token_created_at AS users_reset_token_created_at, users.reset_attempts AS users_reset_attempts, users.failed_login_attempts AS users_failed_login_attempts, users.locked_until AS users_locked_until 
+FROM users 
+WHERE users.id = ?]
+[parameters: (0,)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+Traceback (most recent call last):
+  File "C:\Users\Chef_Controle\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Chef_Controle\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\engine\default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such column: users.role_id
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Chef_Controle\Desktop\Dev\Python\Antigravity\Contragest\verify_rbac.py", line 65, in <module>
+    if verify_rbac():
+       ~~~~~~~~~~~^^
+  File "C:\Users\Chef_Controle\Desktop\Dev\Python\Antigravity\Contragest\verify_rbac.py", line 18, in verify_rbac
+    auth_service.sync_legacy_roles()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Chef_Controle\Desktop\Dev\Python\Antigravity\Contragest\contragest\lib\auth_core\service.py", line 617, in sync_legacy_roles
+    users = session.query(self.User).filter(self.User.role_id == None).all()
+  File "C:\Users\Chef_Controle\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\query.py", line 2704, in all
+    return self._iter().all()  # type: ignore
+           ~~~~~~~~~~^^
+  File "C:\Users\Chef_Controle\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\query.py", line 2857, in _iter
+    result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+                                                  ~~~~~~~~~~~~~~~~~~~~^
+        statement,
+        ^^^^^^^^^^
+        params,
+        ^^^^^^^
+        execution_options={"_sa_orm_load_options": self.load_options},
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Chef_Controle\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\session.py", line 2351, in execute
+    return self._execute_internal(
+           ~~~~~~~~~~~~~~~~~~~~~~^
+        statement,
+        ^^^^^^^^^^
+    ...<4 lines>...
+        _add_event=_add_event,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Chef_Controle\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\session.py", line 2249, in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self,
+        ^^^^^
+    ...<4 lines>...
+        conn,
+        ^^^^^
+    )
+    ^
+  File "C:\Users\Chef_Controle\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\context.py", line 306, in orm_execute_statement
+    result = conn.execute(
+        statement, params or {}, execution_options=execution_options
+    )
+  File "C:\Users\Chef_Controle\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\engine\base.py", line 1419, in execute
+    return meth(
+        self,
+        distilled_parameters,
+        execution_options or NO_OPTIONS,
+    )
+  File "C:\Users\Chef_Controle\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\sql\elements.py", line 527, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self, distilled_params, execution_options
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Chef_Controle\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\engine\base.py", line 1641, in _execute_clauseelement
+    ret = self._execute_context(
+        dialect,
+    ...<8 lines>...
+        cache_hit=cache_hit,
+    )
+  File "C:\Users\Chef_Controle\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\engine\base.py", line 1846, in _execute_context
+    return self._exec_single_context(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        dialect, context, statement, parameters
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Chef_Controle\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\engine\base.py", line 1986, in _exec_single_context
+    self._handle_dbapi_exception(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        e, str_statement, effective_parameters, cursor, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Chef_Controle\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\engine\base.py", line 2363, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "C:\Users\Chef_Controle\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Chef_Controle\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\engine\default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) no such column: users.role_id
+[SQL: SELECT users.id AS users_id, users.username AS users_username, users.email AS users_email, users.password_hash AS users_password_hash, users.salt AS users_salt, users.role AS users_role, users.role_id AS users_role_id, users.is_active AS users_is_active, users.activation_token AS users_activation_token, users.otp_attempts AS users_otp_attempts, users.otp_created_at AS users_otp_created_at, users.created_at AS users_created_at, users.reset_token AS users_reset_token, users.reset_token_created_at AS users_reset_token_created_at, users.reset_attempts AS users_reset_attempts, users.failed_login_attempts AS users_failed_login_attempts, users.locked_until AS users_locked_until 
+FROM users 
+WHERE users.role_id IS NULL]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)

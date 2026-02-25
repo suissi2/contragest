@@ -1,0 +1,21 @@
+Initializing Test Database...
+Syncing legacy roles...
+Checking Roles...
+Found roles: ['admin', 'user']
+Testing permission update for 'admin' role...
+Update status: True, Permissions updated successfully.
+Verifying has_permission check...
+Creating test admin user...
+User ID 1 permission on Contracts/delete: False (Expected False)
+User ID 1 permission on Contracts/view: True (Expected True)
+Traceback (most recent call last):
+  File "C:\Users\Chef_Controle\Desktop\Dev\Python\Antigravity\Contragest\verify_rbac.py", line 94, in <module>
+    if verify_rbac():
+       ~~~~~~~~~~~^^
+  File "C:\Users\Chef_Controle\Desktop\Dev\Python\Antigravity\Contragest\verify_rbac.py", line 84, in verify_rbac
+    print("\u2705 RBAC Logic Verified!")
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\Python314\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2705' in position 0: character maps to <undefined>

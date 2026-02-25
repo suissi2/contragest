@@ -1,0 +1,24 @@
+Traceback (most recent call last):
+  File "C:\Users\Chef_Controle\Desktop\Dev\Python\Antigravity\Contragest\verify_rbac.py", line 9, in <module>
+    from contragest.features.auth.service import AuthService, Role, Permission
+  File "C:\Users\Chef_Controle\Desktop\Dev\Python\Antigravity\Contragest\contragest\features\auth\service.py", line 18, in <module>
+    class Role(Base, RoleMixin):
+        pass
+  File "C:\Users\Chef_Controle\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\decl_api.py", line 199, in __init__
+    _as_declarative(reg, cls, dict_)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\Chef_Controle\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\decl_base.py", line 245, in _as_declarative
+    return _MapperConfig.setup_mapping(registry, cls, dict_, None, {})
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Chef_Controle\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\decl_base.py", line 326, in setup_mapping
+    return _ClassScanMapperConfig(
+        registry, cls_, dict_, table, mapper_kw
+    )
+  File "C:\Users\Chef_Controle\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\decl_base.py", line 562, in __init__
+    self._scan_attributes()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Chef_Controle\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\decl_base.py", line 900, in _scan_attributes
+    raise exc.InvalidRequestError(
+    ...<5 lines>...
+    )
+sqlalchemy.exc.InvalidRequestError: Mapper properties (i.e. deferred,column_property(), relationship(), etc.) must be declared as @declared_attr callables on declarative mixin classes.  For dataclass field() objects, use a lambda:

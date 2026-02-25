@@ -1,0 +1,43 @@
+Réutilisation :
+
+Pour utiliser ce système d'authentification dans un nouveau projet :
+
+1-Copiez le répertoire contragest/lib/auth_core dans votre nouveau projet. Dans votre nouveau projet, 
+
+2-définissez votre modèle User :
+
+from auth_core.models import UserMixin
+from my_app.database import Base
+class User(Base, UserMixin):
+    __tablename__ = 'users'
+    id = Column(Integer, primary_key=True)
+
+3-Instanciez le service :
+
+from auth_core.service import AuthService
+
+auth = AuthService(session_factory=MySessionLocal, user_model=User, ...)
+
+
+4-Utilisez les composants d'interface utilisateur :
+
+from auth_core.ui.login import AuthLoginWindow
+
+AuthLoginWindow(root, auth_service=auth, on_success=my_callback).pack()
+
+
+-------------------------------------------------------------------------------------------------------------
+Résultats de la vérification
+
+Base de données : Les tables users et audit_logs sont correctement mappées et créées.
+
+Flux : L'inscription déclenche une simulation d'e-mail, la connexion fonctionne après l'activation et les journaux d'audit sont enregistrés. 
+Interface utilisateur : Les écrans de connexion et de gestion s’affichent correctement dans l’application Contragest.
+
+
+As a Python specialist, I intend to integrate this authentication system, located at "C:\Users\Chef_Controle\Desktop\Dev\Python\Antigravity\RptGG2.0\auth_core", into the current project.
+
+
+
+
+
