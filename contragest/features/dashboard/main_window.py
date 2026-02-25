@@ -15,6 +15,7 @@ from contragest.core.layout import pack_start, pack_end, is_rtl
 from contragest.core.system_info import get_pc_info, get_location_and_weather
 from PIL import Image, ImageTk
 import os
+import calendar
 
 class MainWindow(ttk.Frame):
     def __init__(self, parent, user, logout_callback=None):
@@ -23,6 +24,7 @@ class MainWindow(ttk.Frame):
         self.parent = parent # This is the root window
         self.logout_callback = logout_callback
         self.auth_service = AuthService()
+        self.image_cache = {}
         self.load_initial_language()
         
         self.scheduler = BackgroundScheduler(
@@ -162,15 +164,11 @@ class MainWindow(ttk.Frame):
         settings_menu.add_command(label="⚙️ " + tr("configuration"), command=lambda: self.open_settings('application'))
         
         # Utility Submenu
-        print(f"DEBUG: Building menu for user: {self.current_user.username}, Role: {self.current_user.role}")
         if self.current_user.role == 'admin':
-            print("DEBUG: Admin role detected. Adding Utility menu.")
             utility_menu = ttk.Menu(settings_menu, tearoff=0)
             utility_menu.add_command(label="🔄 " + tr("recover_deleted_contracts"), command=self.open_recovery_manager)
             utility_menu.add_command(label="👥 User Management", command=self.open_user_management)
             settings_menu.add_cascade(label=tr("utility"), menu=utility_menu)
-        else:
-            print(f"DEBUG: Non-admin role '{self.current_user.role}' detected. Skipping Utility menu.")
         
         menu_bar.add_cascade(label=tr("settings"), menu=settings_menu)
         # Menu will be applied in setup_window
@@ -231,37 +229,37 @@ class MainWindow(ttk.Frame):
         self.table = None # Created in refresh_data
 
     def refresh_data(self):
-        print("DEBUG: Refreshing data...")
-        from contragest.core.database import SessionLocal, AppConfig  # Import here to ensure clean session
+        """Refreshes contract data and updates the UI table."""
+        from contragest.core.database import SessionLocal, AppConfig
         db = SessionLocal()
         try:
             config = db.query(AppConfig).first()
             contracts = db.query(Contract).all()
-            print(f"DEBUG: Found {len(contracts)} contracts.")
             
             row_data = []
             active_count = 0
             expiring_count = 0
             expired_count = 0
             today = date.today()
+            threshold = config.alert_threshold_days if config else 30
             
+            # Pre-translate common strings
+            active_tr = tr("active")
+            expired_tr = tr("expired")
+            expiring_soon_tr = tr("expiring_soon")
+            edit_icon = "✏️"
+            delete_icon = "🗑️"
+
             for c in contracts:
-                print(f"DEBUG: Processing contract {c.id} for {c.employee.first_name}")
-                status_display = tr("active")
-                
-                # Action Icons
-                edit_icon = "✏️"
-                delete_icon = "🗑️"
+                status_display = active_tr
                 
                 if c.end_date:
                     days_left = (c.end_date - today).days
                     if days_left < 0:
-                        status_key = "expired"
-                        status_display = tr("expired")
+                        status_display = expired_tr
                         expired_count += 1
-                    elif days_left <= (config.alert_threshold_days if config else 30):
-                        status_key = "expiring_soon"
-                        status_display = tr("expiring_soon")
+                    elif days_left <= threshold:
+                        status_display = expiring_soon_tr
                         expiring_count += 1
                     else:
                         active_count += 1
@@ -270,8 +268,6 @@ class MainWindow(ttk.Frame):
                     active_count += 1 # CDI
                 
                 days_left_display = str(days_left) if days_left is not None else "∞"
-                
-                # Calculate Seniority
                 seniority_display = self.calculate_seniority(c.start_date)
                 
                 row_data.append((
@@ -288,13 +284,11 @@ class MainWindow(ttk.Frame):
                     status_display
                 ))
             
-            print(f"DEBUG: Loading table with {len(row_data)} rows.")
-            
-            # Recreate table to avoid update bugs
+            # Recreate table (Tableview update can be buggy with tags)
             if self.table:
                 self.table.destroy()
             
-            # Ensure we're clean
+            # Ensure container is clean
             for widget in self.tree_frame.winfo_children():
                 widget.destroy()
 
@@ -473,18 +467,6 @@ class MainWindow(ttk.Frame):
         elif column == "#2": # Delete icon
             self.delete_contract()
 
-    def calculate_deletion_password(self):
-        """
-        Formula: ((day + month + (year % 100)) * 2) - 10
-        For 11/02/2026: (11 + 2 + 26) * 2 - 10 = 39 * 2 - 10 = 78 - 10 = 68
-        Note: The user example said 11/02/2026 -> (11+2+26)*2-10.
-        """
-        now = datetime.now()
-        day = now.day
-        month = now.month
-        year_short = now.year % 100
-        password = ((day + month + year_short) * 2) - 10
-        return str(password)
 
     def on_scheduled_alert_triggered(self, count, success):
         """Callback from background thread when a scheduled alert runs."""
@@ -571,18 +553,19 @@ class MainWindow(ttk.Frame):
     @AuthService.require_permission('Contracts', 'delete')
     def open_recovery_manager(self):
         # Security Password Check
-        correct_pwd = self.calculate_deletion_password()
         from ttkbootstrap.dialogs import Querybox
         password_input = Querybox.get_string(
-            prompt=tr("enter_password"),
+            prompt="Please enter your password to confirm:",
             title=tr("password_title"),
-            parent=self,
-            initialvalue=""
+            show='*',
+            parent=self
         )
         
-        if password_input != correct_pwd:
-            if password_input is not None:
-                Messagebox.show_error(tr("incorrect_password"), tr("error"))
+        if password_input is None:
+            return
+
+        if not self.auth_service.verify_user_password(self.current_user.id, password_input):
+            Messagebox.show_error("Incorrect password.", tr("error"))
             return
             
         from contragest.features.contracts.forms import RecoveryForm
@@ -633,21 +616,19 @@ class MainWindow(ttk.Frame):
             Messagebox.show_info(tr("select_contract_to_delete"), tr("information"))
             return
         
-        correct_pwd = self.calculate_deletion_password()
-        print(f"DEBUG UI: Expected password: {correct_pwd}")
-        
         from ttkbootstrap.dialogs import Querybox
         password_input = Querybox.get_string(
-            prompt=tr("enter_password"),
+            prompt="Please enter your password to confirm deletion:",
             title=tr("password_title"),
-            parent=self,
-            initialvalue=""
+            show='*',
+            parent=self
         )
-        print(f"DEBUG UI: Password input: {password_input}")
         
-        if password_input != correct_pwd:
-            if password_input is not None:
-                Messagebox.show_error(tr("incorrect_password"), tr("error"))
+        if password_input is None:
+            return
+
+        if not self.auth_service.verify_user_password(self.current_user.id, password_input):
+            Messagebox.show_error("Incorrect password.", tr("error"))
             return
 
         # Explicitly define buttons to avoid localization issues in response comparison
@@ -664,7 +645,7 @@ class MainWindow(ttk.Frame):
         
         db = SessionLocal()
         try:
-            service = ContractService(db)
+            service = ContractService(db, auth_service=self.auth_service)
             service.delete_contract(contract_id, user_id=self.current_user.id)
             
             self.refresh_data()
@@ -696,7 +677,6 @@ class MainWindow(ttk.Frame):
             
             if today.day < start_date.day:
                 total_months -= 1
-                import calendar
                 prev_month_year = today.year if today.month > 1 else today.year - 1
                 prev_month = today.month - 1 if today.month > 1 else 12
                 _, last_month_days = calendar.monthrange(prev_month_year, prev_month)
@@ -710,6 +690,7 @@ class MainWindow(ttk.Frame):
             return "N/A"
 
     def load_company_logo(self, label=None, size=(40, 40)):
+        """Loads and caches the company logo to avoid redundant processing."""
         if label is None:
             label = self.logo_label
             
@@ -718,14 +699,21 @@ class MainWindow(ttk.Frame):
         try:
             config = session.query(AppConfig).first()
             if config and config.company_logo_path and os.path.exists(config.company_logo_path):
-                img = Image.open(config.company_logo_path)
-                img.thumbnail(size)
-                photo = ImageTk.PhotoImage(img)
-                # Keep reference to avoid garbage collection
+                # Use cache to avoid repeated disk I/O and thumbnail generation
+                cache_key = (config.company_logo_path, size)
+                if cache_key in self.image_cache:
+                    photo = self.image_cache[cache_key]
+                else:
+                    img = Image.open(config.company_logo_path)
+                    img.thumbnail(size)
+                    photo = ImageTk.PhotoImage(img)
+                    self.image_cache[cache_key] = photo
+
+                # Apply to label
                 label.config(image=photo)
                 label.image = photo 
-                if label == self.logo_label:
-                    self.photo = photo
+            else:
+                label.config(image='', text="")
         except Exception as e:
             print(f"Error loading logo in MainWindow: {e}")
         finally:

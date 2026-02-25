@@ -398,7 +398,9 @@ class ContractForm(ttk.Toplevel):
                 end = datetime.strptime(end_str, "%Y-%m-%d").date()
 
             from contragest.features.contracts.service import ContractService
-            service = ContractService(self.session)
+            from contragest.features.auth.service import AuthService
+            auth_service = AuthService()
+            service = ContractService(self.session, auth_service=auth_service)
             
             if self.contract_id:
                 # Update Existing - Security Check
@@ -415,18 +417,9 @@ class ContractForm(ttk.Toplevel):
                     if not password:
                         return
                         
-                    from contragest.features.auth.service import verify_password
-                    # Re-query user to get fresh hash/salt in case it changed
-                    from contragest.features.auth.service import User, SessionLocal as AuthSession
-                    auth_session = AuthSession()
-                    try:
-                        fresh_user = auth_session.query(User).get(self.user.id)
-                        
-                        if not fresh_user or not verify_password(fresh_user.password_hash, fresh_user.salt, password):
-                             Messagebox.show_error("Incorrect password. Changes not saved.", "Authentication Failed")
-                             return
-                    finally:
-                        auth_session.close()
+                    if not auth_service.verify_user_password(self.user.id, password):
+                         Messagebox.show_error("Incorrect password. Changes not saved.", "Authentication Failed")
+                         return
 
                 service.update_contract(
                     contract_id=self.contract_id,
@@ -618,8 +611,8 @@ class RecoveryForm(ttk.Toplevel):
             
         from contragest.features.contracts.service import ContractService
         from contragest.features.auth.service import AuthService
-        service = ContractService(self.session)
         auth_service = AuthService()
+        service = ContractService(self.session, auth_service=auth_service)
         success_count = 0
         
         try:

@@ -57,6 +57,10 @@ class AuthService:
         return True, "Password meets requirements."
 
     def log_action(self, user_id: int, action: str, details: Optional[str] = None, affected_entity: Optional[str] = None, entity_id: Optional[int] = None) -> None:
+        """
+        Logs an action to the AuditLog table.
+        Failure to log does not interrupt the main application flow.
+        """
         session = self._get_session()
         try:
             # Get username for the log
@@ -74,7 +78,10 @@ class AuthService:
             session.add(log)
             session.commit()
         except Exception as e:
-            print(f"AuthService Error logging action: {e}")
+            # Fallback to standard logging if DB logging fails
+            from contragest.core.logging import setup_logger
+            logger = setup_logger("auth_service")
+            logger.error(f"Failed to record audit log in DB: {e} | Action: {action}, User: {user_id}")
             session.rollback()
         finally:
             session.close()
@@ -109,7 +116,10 @@ class AuthService:
             
             # First user is admin
             user_count = session.query(self.User).count()
-            role = 'admin' if user_count == 0 else 'user'
+            role_name = 'admin' if user_count == 0 else 'user'
+
+            # Find the corresponding Role object
+            role_obj = session.query(self.Role).filter_by(name=role_name).first()
 
             activation_otp = "".join([secrets.choice('0123456789') for _ in range(6)])
             otp_hash, _ = self._hash_password(activation_otp, salt)
@@ -119,7 +129,8 @@ class AuthService:
                 email=email,
                 password_hash=pwd_hash,
                 salt=salt,
-                role=role, 
+                role=role_name, # Legacy string field
+                role_id=role_obj.id if role_obj else None,
                 activation_token=otp_hash,
                 is_active=False,
                 otp_created_at=datetime.now(),
@@ -134,7 +145,7 @@ class AuthService:
             user_id = new_user.id
             user_email = new_user.email
             
-            self.log_action(user_id, "REGISTER", f"User registered as {role}", affected_entity="USER", entity_id=user_id)
+            self.log_action(user_id, "REGISTER", f"User registered as {role_name}", affected_entity="USER", entity_id=user_id)
 
             if self.email_service:
                 self._send_activation_email(user_email, username, activation_otp)
@@ -143,6 +154,17 @@ class AuthService:
         except Exception:
             session.rollback()
             raise
+        finally:
+            session.close()
+
+    def verify_user_password(self, user_id: int, password_input: str) -> bool:
+        """Verifies a user's password without affecting login state or lockout."""
+        session = self._get_session()
+        try:
+            user = session.query(self.User).get(user_id)
+            if not user:
+                return False
+            return self._verify_password(user.password_hash, user.salt, password_input)
         finally:
             session.close()
 
@@ -587,18 +609,11 @@ class AuthService:
             if not user:
                 return False
             
-            # Super-admin bypass: if they have the legacy 'admin' string
-            if user.role == 'admin':
-                return True
-                
-            if user.role_id:
-                # Super-admin bypass: if they belong to a role named 'admin'
-                role = session.query(self.Role).get(user.role_id)
-                if role and role.name == 'admin':
-                    return True
-            
-            # If no role_id and not legacy admin, no permission
+            # If no role_id, no permission (unless it's legacy admin with bypass)
             if not user.role_id:
+                # Legacy fallback for users created before RBAC
+                if user.role == 'admin':
+                    return True
                 return False
             
             perm = session.query(self.Permission).filter_by(role_id=user.role_id, screen_name=screen).first()
@@ -617,28 +632,42 @@ class AuthService:
             session.close()
 
     def sync_legacy_roles(self):
-        """Seed initial roles for 'admin' and 'user' if they don't exist."""
+        """Seed initial roles and migrate legacy users."""
         session = self._get_session()
         try:
+            # 1. Ensure 'admin' role exists
             admin_role = session.query(self.Role).filter_by(name='admin').first()
             if not admin_role:
-                self.create_role('admin', 'Full system access')
-            
+                success, _ = self.create_role('admin', 'Full system access')
+                admin_role = session.query(self.Role).filter_by(name='admin').first()
+
+            # 2. Ensure 'user' role exists
             user_role = session.query(self.Role).filter_by(name='user').first()
             if not user_role:
-                self.create_role('user', 'Standard limited access')
+                success, _ = self.create_role('user', 'Standard limited access')
+                user_role = session.query(self.Role).filter_by(name='user').first()
             
-            # Migrate existing users if they don't have role_id
-            admin_role = session.query(self.Role).filter_by(name='admin').first()
-            user_role = session.query(self.Role).filter_by(name='user').first()
-            
-            users = session.query(self.User).filter(self.User.role_id == None).all()
-            for u in users:
+            # 3. Migrate existing users if they don't have role_id
+            users_to_migrate = session.query(self.User).filter(self.User.role_id == None).all()
+            for u in users_to_migrate:
                 if u.role == 'admin':
                     u.role_id = admin_role.id
                 else:
                     u.role_id = user_role.id
+
             session.commit()
+
+            # 4. Seed default permissions for admin if none exist
+            if admin_role:
+                existing_perms = session.query(self.Permission).filter_by(role_id=admin_role.id).first()
+                if not existing_perms:
+                    screens = ['Contracts', 'Settings', 'User Management', 'Audit Log', 'Reports']
+                    admin_perms = [
+                        {'screen': s, 'can_view': True, 'can_add': True, 'can_edit': True, 'can_delete': True}
+                        for s in screens
+                    ]
+                    self.update_role_permissions(admin_role.id, admin_perms)
+
         finally:
             session.close()
 

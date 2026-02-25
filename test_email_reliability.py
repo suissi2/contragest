@@ -22,7 +22,7 @@ class TestEmailReliability(unittest.TestCase):
             mock_service = MockServiceClass.return_value
             mock_service.connect.return_value = MagicMock()
             
-            def side_effect_send(server, subject, body, recipient):
+            def side_effect_send(server, subject, body, recipient, **kwargs):
                 if recipient == "fail@test.com":
                     raise Exception("Simulated Failure")
                 print(f"Successfully sent to {recipient}")

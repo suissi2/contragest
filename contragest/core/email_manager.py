@@ -29,6 +29,7 @@ class EmailManager:
     def _initialize(self):
         self.queue = queue.Queue()
         self.retry_queue = queue.PriorityQueue() # (timestamp, task)
+        self.retry_lock = threading.Lock()
         self.running = True
         self.workers: List[threading.Thread] = []
         self.NUM_WORKERS = 3
@@ -79,15 +80,18 @@ class EmailManager:
 
                 # 2. Check for Retries
                 # If we have items in retry queue that are due, move them to main queue
-                while not self.retry_queue.empty():
-                    # Peek at the item (timestamp, task)
-                    retry_time, task = self.retry_queue.queue[0]
-                    if retry_time <= time.time():
-                        _, task = self.retry_queue.get()
-                        logger.info(f"Moving retry task for {task['recipient']} back to main queue.")
-                        self.queue.put(task)
-                    else:
-                        break # PriorityQueue is sorted, so next items are also in future
+                with self.retry_lock:
+                    while not self.retry_queue.empty():
+                        # Peek at the item (timestamp, task)
+                        # Accessing .queue[0] is only safe while holding a lock
+                        # as another worker might get() an item in between.
+                        retry_time, task = self.retry_queue.queue[0]
+                        if retry_time <= time.time():
+                            _, task = self.retry_queue.get()
+                            logger.info(f"Moving retry task for {task['recipient']} back to main queue.")
+                            self.queue.put(task)
+                        else:
+                            break # PriorityQueue is sorted, so next items are also in future
 
                 # 3. Get Task (Blocking with timeout to check connection idle & retries)
                 try:
