@@ -813,3 +813,9 @@ contragest.core.exceptions.EmailSendingError: Failed to send message to controle
 2026-02-25 08:12:39,977 - email_manager - INFO - Sent email to controle@saphirpalace.com.tn | Queue Latency: 0.29s | Send Duration: 0.06s
 2026-02-25 08:12:40,598 - main_window - INFO - Alert already sent or checked for today. Skipping startup check.
 2026-02-25 11:13:40,071 - main_window - INFO - Alert already sent or checked for today. Skipping startup check.
+2026-03-27 19:12:28,706 - email_manager - INFO - EmailManager initialized with 3 workers.
+2026-03-27 19:12:28,706 - email_manager - INFO - Enqueued email to testauth@example.com (Task ID: 140607308882576-1774638748)
+2026-03-27 19:12:28,997 - email_manager - INFO - Enqueued email to testauth@example.com (Task ID: 140607309051376-1774638748)
+2026-03-27 19:12:29,685 - email_manager - INFO - Enqueued email to testauth@example.com (Task ID: 140607307675312-1774638749)
+2026-03-27 19:12:29,896 - email_manager - INFO - Enqueued email to testauth@example.com (Task ID: 140607307674288-1774638749)
+2026-03-27 19:12:30,192 - email_manager - INFO - Enqueued email to debug_debug_user_2275badd@example.com (Task ID: 140607306234640-1774638750)
