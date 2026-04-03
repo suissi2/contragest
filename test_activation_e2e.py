@@ -1,5 +1,6 @@
 import sys
 import os
+from datetime import datetime, timedelta
 sys.path.append(os.getcwd())
 
 from contragest.core.database import SessionLocal
@@ -19,34 +20,31 @@ def test_full_cycle():
         user = core.register_user(test_user, test_email, test_pass)
         print(f"User registered with ID {user.id}")
         
-        # Get the OTP from the database (simulation of receiving email)
+        # Bypass cooldown
         session = SessionLocal()
-        user_in_db = session.query(User).filter_by(username=test_user).first()
-        stored_token = user_in_db.activation_token
-        salt = user_in_db.salt
+        u = session.query(User).filter_by(username=test_user).first()
+        u.otp_created_at = datetime.now() - timedelta(seconds=70)
+        session.commit()
         session.close()
-        
-        print(f"Stored Token: {stored_token}")
-        print(f"Salt: {salt}")
-        
-        # Since we can't easily see the OTP that was sent (mocked/emailed),
-        # let's try to 'resend' it and capture it by mocking the email service
+
         print("\nRequesting Resend and capturing OTP...")
         
         class MockEmailService:
+            def __init__(self):
+                self.captured_otp = None
+
             def send_email(self, email, subject, body):
                 # The body contains <h1>OTP</h1>
                 import re
-                match = re.search(r'<h1>(\d+)</h1>', body)
+                match = re.search(r'<h1[^>]*>(\d+)</h1>', body)
                 if match:
                     self.captured_otp = match.group(1)
-                else:
-                    self.captured_otp = None
         
         mock_email = MockEmailService()
         core.email_service = mock_email
         
-        core.resend_activation_otp(test_user)
+        success_resend, msg_resend = core.resend_activation_otp(test_user)
+        print(f"Resend success: {success_resend}, Message: {msg_resend}")
         captured_otp = mock_email.captured_otp
         
         print(f"Captured OTP from 'email': {captured_otp}")

@@ -49,27 +49,30 @@ def verify_rbac():
         return False
     
     print("Verifying has_permission check...")
-    # Create a test user who has the admin role
+    # Create a test user
     session = TestSessionLocal()
     
-    # Check if user exists, if not create
-    test_user = session.query(User).filter_by(username='test_admin').first()
-    if not test_user:
-        print("Creating test admin user...")
-        # We use a raw insert to avoid AuthService.register_user complexity for this test
-        test_user = User(
-            username='test_admin',
-            email='test@example.com',
-            password_hash='dummy',
-            salt='dummy',
-            role='admin',
-            role_id=admin_role.id,
-            is_active=True
-        )
-        session.add(test_user)
-        session.commit()
-        session.refresh(test_user)
+    print("Creating test staff user...")
+    staff_role_name = 'staff_test'
+    auth_service.create_role(staff_role_name, 'Limited staff access')
+    staff_role = session.query(Role).filter_by(name=staff_role_name).first()
     
+    test_perms = [
+        {'screen': 'Contracts', 'can_view': True, 'can_add': False, 'can_edit': False, 'can_delete': False}
+    ]
+    auth_service.update_role_permissions(staff_role.id, test_perms)
+
+    test_user = User(
+        username='test_staff',
+        email='staff@example.com',
+        password_hash='dummy',
+        salt='dummy',
+        role='user', # NOT 'admin'
+        role_id=staff_role.id,
+        is_active=True
+    )
+    session.add(test_user)
+    session.commit()
     user_id = test_user.id
     session.close()
     
@@ -77,7 +80,7 @@ def verify_rbac():
         can_delete = auth_service.has_permission(user_id, 'Contracts', 'delete')
         can_view = auth_service.has_permission(user_id, 'Contracts', 'view')
         
-        print(f"User ID {user_id} permission on Contracts/delete: {can_delete} (Expected False)")
+        print(f"User ID {user_id} (Role: {staff_role_name}) permission on Contracts/delete: {can_delete} (Expected False)")
         print(f"User ID {user_id} permission on Contracts/view: {can_view} (Expected True)")
         
         if can_delete == False and can_view == True:
@@ -88,7 +91,7 @@ def verify_rbac():
             return False
     else:
         print("⚠️ No users found to test permission logic.")
-        return True # Models work, just no data
+        return True
 
 if __name__ == "__main__":
     if verify_rbac():
