@@ -1,5 +1,6 @@
 import sys
 import os
+from datetime import datetime, timedelta
 sys.path.append(os.getcwd())
 
 from contragest.core.database import SessionLocal
@@ -30,23 +31,37 @@ def test_full_cycle():
         print(f"Salt: {salt}")
         
         # Since we can't easily see the OTP that was sent (mocked/emailed),
-        # let's try to 'resend' it and capture it by mocking the email service
+        # let's try to 'resend' it and capture it by mocking the email service.
+        # We must bypass the 60s cooldown first.
+        session = SessionLocal()
+        user_in_db = session.query(User).filter_by(username=test_user).first()
+        user_in_db.otp_created_at = datetime.now() - timedelta(seconds=70)
+        session.commit()
+        session.close()
+
         print("\nRequesting Resend and capturing OTP...")
         
         class MockEmailService:
+            def __init__(self):
+                self.captured_otp = None
             def send_email(self, email, subject, body):
-                # The body contains <h1>OTP</h1>
+                # The body contains <h1>OTP</h1> or similar
                 import re
+                # Try multiple regexes to be sure
                 match = re.search(r'<h1>(\d+)</h1>', body)
+                if not match:
+                    match = re.search(r'>(\d{6})<', body)
+
                 if match:
                     self.captured_otp = match.group(1)
                 else:
-                    self.captured_otp = None
+                    print(f"DEBUG: Body did not match OTP regex: {body[:100]}...")
         
         mock_email = MockEmailService()
         core.email_service = mock_email
         
-        core.resend_activation_otp(test_user)
+        success, msg = core.resend_activation_otp(test_user)
+        print(f"Resend Success: {success}, Message: {msg}")
         captured_otp = mock_email.captured_otp
         
         print(f"Captured OTP from 'email': {captured_otp}")
