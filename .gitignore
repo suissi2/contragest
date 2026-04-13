@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.db
+*.log
+logs/
+audit_log_*.csv
+.pytest_cache/
