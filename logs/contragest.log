@@ -813,3 +813,49 @@ contragest.core.exceptions.EmailSendingError: Failed to send message to controle
 2026-02-25 08:12:39,977 - email_manager - INFO - Sent email to controle@saphirpalace.com.tn | Queue Latency: 0.29s | Send Duration: 0.06s
 2026-02-25 08:12:40,598 - main_window - INFO - Alert already sent or checked for today. Skipping startup check.
 2026-02-25 11:13:40,071 - main_window - INFO - Alert already sent or checked for today. Skipping startup check.
+2026-04-14 19:35:39,630 - email_manager - INFO - EmailManager initialized with 3 workers.
+2026-04-14 19:35:39,631 - email_manager - INFO - Enqueued email to testauth@example.com (Task ID: 140453437418720-1776195339)
+2026-04-14 19:35:39,909 - email_manager - INFO - Enqueued email to testauth@example.com (Task ID: 140453438358672-1776195339)
+2026-04-14 19:35:40,619 - email_manager - INFO - Enqueued email to testauth@example.com (Task ID: 140453436877232-1776195340)
+2026-04-14 19:35:40,855 - email_manager - INFO - Enqueued email to testauth@example.com (Task ID: 140453436867504-1776195340)
+2026-04-14 19:35:41,177 - email_manager - INFO - Enqueued email to debug_debug_user_6621ff60@example.com (Task ID: 140453426104816-1776195341)
+2026-04-14 19:35:41,186 - email_manager - INFO - EmailManager initialized with 3 workers.
+2026-04-14 19:35:41,188 - email_manager - INFO - Enqueued email to fail@test.com (Task ID: 140453437013664-1776195341)
+2026-04-14 19:35:41,188 - email_manager - INFO - Enqueued email to success@test.com (Task ID: 140453444412512-1776195341)
+2026-04-14 19:35:41,191 - email_manager - INFO - EmailWorker-0: Established new SMTP connection.
+2026-04-14 19:35:41,191 - email_manager - INFO - EmailWorker-1: Established new SMTP connection.
+2026-04-14 19:35:41,191 - email_manager - ERROR - Failed to send email to fail@test.com (ID: 140453437013664-1776195341): TestEmailReliability.test_retry_does_not_block.<locals>.side_effect_send() got an unexpected keyword argument 'logo_path'
+Traceback (most recent call last):
+  File "/app/contragest/core/email_manager.py", line 129, in _worker
+    email_service.send_message(
+  File "/home/jules/.pyenv/versions/3.12.13/lib/python3.12/unittest/mock.py", line 1139, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jules/.pyenv/versions/3.12.13/lib/python3.12/unittest/mock.py", line 1143, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jules/.pyenv/versions/3.12.13/lib/python3.12/unittest/mock.py", line 1204, in _execute_mock_call
+    result = effect(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: TestEmailReliability.test_retry_does_not_block.<locals>.side_effect_send() got an unexpected keyword argument 'logo_path'
+2026-04-14 19:35:41,192 - email_manager - ERROR - Failed to send email to success@test.com (ID: 140453444412512-1776195341): TestEmailReliability.test_retry_does_not_block.<locals>.side_effect_send() got an unexpected keyword argument 'logo_path'
+Traceback (most recent call last):
+  File "/app/contragest/core/email_manager.py", line 129, in _worker
+    email_service.send_message(
+  File "/home/jules/.pyenv/versions/3.12.13/lib/python3.12/unittest/mock.py", line 1139, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jules/.pyenv/versions/3.12.13/lib/python3.12/unittest/mock.py", line 1143, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jules/.pyenv/versions/3.12.13/lib/python3.12/unittest/mock.py", line 1204, in _execute_mock_call
+    result = effect(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: TestEmailReliability.test_retry_does_not_block.<locals>.side_effect_send() got an unexpected keyword argument 'logo_path'
+2026-04-14 19:35:41,194 - email_manager - INFO - Scheduling retry 1/5 for fail@test.com in 2.1s. Reason: TestEmailReliability.test_retry_does_not_block.<locals>.side_effect_send() got an unexpected keyword argument 'logo_path'
+2026-04-14 19:35:41,195 - email_manager - INFO - Scheduling retry 1/5 for success@test.com in 2.3s. Reason: TestEmailReliability.test_retry_does_not_block.<locals>.side_effect_send() got an unexpected keyword argument 'logo_path'
+2026-04-14 19:35:51,226 - email_manager - INFO - EmailManager initialized with 3 workers.
+2026-04-14 19:35:51,226 - email_manager - INFO - Enqueued email to testauth@example.com (Task ID: 139716190910256-1776195351)
+2026-04-14 19:35:51,531 - email_manager - INFO - Enqueued email to testauth@example.com (Task ID: 139716191216192-1776195351)
+2026-04-14 19:35:52,201 - email_manager - INFO - Enqueued email to testauth@example.com (Task ID: 139716191419440-1776195352)
+2026-04-14 19:35:52,403 - email_manager - INFO - Enqueued email to testauth@example.com (Task ID: 139716189961264-1776195352)
