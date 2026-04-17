@@ -36,34 +36,36 @@ def verify_rbac():
         print("❌ Error: Default roles not found.")
         return False
     
-    admin_role = next(r for r in roles if r.name == 'admin')
+    # Use 'user' role for testing granular permissions, as 'admin' bypasses checks
+    test_role_name = 'user'
+    test_role = next(r for r in roles if r.name == test_role_name)
     
-    print(f"Testing permission update for '{admin_role.name}' role...")
+    print(f"Testing permission update for '{test_role.name}' role...")
     test_perms = [
         {'screen': 'Contracts', 'can_view': True, 'can_add': True, 'can_edit': True, 'can_delete': False}
     ]
-    success, msg = auth_service.update_role_permissions(admin_role.id, test_perms)
+    success, msg = auth_service.update_role_permissions(test_role.id, test_perms)
     print(f"Update status: {success}, {msg}")
     
     if not success:
         return False
     
     print("Verifying has_permission check...")
-    # Create a test user who has the admin role
+    # Create a test user who has the test role
     session = TestSessionLocal()
     
     # Check if user exists, if not create
-    test_user = session.query(User).filter_by(username='test_admin').first()
+    test_user = session.query(User).filter_by(username='test_user').first()
     if not test_user:
-        print("Creating test admin user...")
+        print("Creating test user...")
         # We use a raw insert to avoid AuthService.register_user complexity for this test
         test_user = User(
-            username='test_admin',
-            email='test@example.com',
+            username='test_user',
+            email='test_user@example.com',
             password_hash='dummy',
             salt='dummy',
-            role='admin',
-            role_id=admin_role.id,
+            role=test_role_name,
+            role_id=test_role.id,
             is_active=True
         )
         session.add(test_user)
