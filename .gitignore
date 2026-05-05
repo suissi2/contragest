@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.db
+*.log
+audit_log_*.csv
+debug_rbac*.txt
+.pytest_cache/
