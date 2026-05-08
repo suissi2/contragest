@@ -37,15 +37,25 @@ def test_full_cycle():
             def send_email(self, email, subject, body):
                 # The body contains <h1>OTP</h1>
                 import re
-                match = re.search(r'<h1>(\d+)</h1>', body)
+                # Template has <h1 style="letter-spacing: 5px; color: #3498db; margin: 0;">{{otp}}</h1>
+                match = re.search(r'<h1[^>]*>(\d+)</h1>', body)
                 if match:
                     self.captured_otp = match.group(1)
                 else:
                     self.captured_otp = None
         
         mock_email = MockEmailService()
+        mock_email.captured_otp = None
         core.email_service = mock_email
         
+        # Bypass cooldown
+        from datetime import datetime, timedelta
+        session = SessionLocal()
+        user_in_db = session.query(User).filter_by(username=test_user).first()
+        user_in_db.otp_created_at = datetime.now() - timedelta(seconds=70)
+        session.commit()
+        session.close()
+
         core.resend_activation_otp(test_user)
         captured_otp = mock_email.captured_otp
         
