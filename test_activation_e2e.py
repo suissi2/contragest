@@ -5,6 +5,7 @@ sys.path.append(os.getcwd())
 from contragest.core.database import SessionLocal
 from contragest.features.auth.service import AuthService, User
 import secrets
+from datetime import datetime, timedelta
 
 def test_full_cycle():
     auth_service = AuthService()
@@ -34,10 +35,13 @@ def test_full_cycle():
         print("\nRequesting Resend and capturing OTP...")
         
         class MockEmailService:
+            def __init__(self):
+                self.captured_otp = None
+
             def send_email(self, email, subject, body):
-                # The body contains <h1>OTP</h1>
+                # The body contains <h1 ...>OTP</h1>
                 import re
-                match = re.search(r'<h1>(\d+)</h1>', body)
+                match = re.search(r'<h1[^>]*>(\d+)</h1>', body)
                 if match:
                     self.captured_otp = match.group(1)
                 else:
@@ -46,6 +50,13 @@ def test_full_cycle():
         mock_email = MockEmailService()
         core.email_service = mock_email
         
+        # Bypass 60s cooldown by updating otp_created_at
+        session = SessionLocal()
+        user_in_db = session.query(User).filter_by(username=test_user).first()
+        user_in_db.otp_created_at = datetime.now() - timedelta(seconds=70)
+        session.commit()
+        session.close()
+
         core.resend_activation_otp(test_user)
         captured_otp = mock_email.captured_otp
         
