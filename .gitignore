@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Databases
+*.db
+
+# Logs
+*.log
+logs/
+audit_log_*.csv
+debug_rbac*.txt
+app_log.txt
+
+# OS
+.DS_Store
+Thumbs.db
