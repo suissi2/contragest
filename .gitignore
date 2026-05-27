@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Databases
+*.db
+
+# Logs
+*.log
+logs/
+audit_log_*.csv
+debug_rbac*.txt
+app_log.txt
+
+# Master Prompts (except the latest)
+CONTRAGEST_MASTER_PROMPT_v1.md
+CONTRAGEST_MASTER_PROMPT_v2.md
+CONTRAGEST_MASTER_PROMPT_v3.md
+CONTRAGEST_MASTER_PROMPT_v4.md
+CONTRAGEST_MASTER_PROMPT_v5.md
+CONTRAGEST_MASTER_PROMPT_v6.md
