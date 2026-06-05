@@ -1,0 +1,23 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Databases
+*.db
+
+# Logs
+*.log
+logs/
+app_log.txt
+
+# Audit logs
+audit_log_*.csv
+
+# Debug files
+debug_rbac*.txt
+debug_otp.py
+debug_schema.py
+
+# Version control noise
+.pytest_cache/
