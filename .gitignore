@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*.db
+*.log
+logs/
+app_log.txt
+audit_log_*.csv
+debug_rbac*.txt
+debug_otp.py
+debug_schema.py
+.pytest_cache/
