@@ -1,4 +1,4 @@
-import os
+﻿import os
 import smtplib
 import ssl
 import socket
@@ -99,9 +99,16 @@ class EmailService:
             
             msg['Message-ID'] = make_msgid(domain=domain)
             
-            # Attach HTML part
+            # Attach HTML and Plain part
             msg_alternative = MIMEMultipart('alternative')
             msg.attach(msg_alternative)
+            
+            # Create a simple plain text fallback and attach it FIRST
+            import re
+            text_body = re.sub('<[^<]+?>', '', body)
+            msg_alternative.attach(MIMEText(text_body, 'plain'))
+            
+            # Attach the HTML part SECOND (multipart/alternative requires preferred format last)
             msg_alternative.attach(MIMEText(body, 'html'))
             
             # Attach Logo as CID if provided
@@ -116,7 +123,7 @@ class EmailService:
                 except Exception as e:
                     logger.error(f"Failed to attach logo {logo_path}: {e}")
             
-            server.send_message(msg)
+            server.send_message(msg, from_addr=sender_email, to_addrs=[recipient])
             return True
         except Exception as e:
             raise EmailSendingError(f"Failed to send message to {recipient}: {e}")

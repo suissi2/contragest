@@ -1,4 +1,4 @@
-
+﻿
 import tkinter as tk
 from tkinter import ttk, simpledialog
 from ttkbootstrap.dialogs import Messagebox
@@ -19,6 +19,7 @@ class UserManagementPanel(tk.Frame):
         ("email",    "Email",     200, "w"),
         ("role",     "Role",      90,  "center"),
         ("status",   "Status",    100, "center"),
+        ("auto_login","Auto-Login",90,  "center"),
         ("created",  "Created",   110, "center"),
     ]
 
@@ -87,6 +88,7 @@ class UserManagementPanel(tk.Frame):
             ("🔓 Unlock",         self._do_unlock_user, "warning"),
             ("🔑 Reset Pwd",      self._show_reset_password_dialog, "danger"),
             ("⏻ Toggle Status",  self._do_toggle_status, "secondary"),
+            ("⚡ Auto-Login",     self._do_toggle_auto_login, "success"),
             ("↻ Refresh",        self.load_users, "info"),
         ]
         for text, cmd, style in actions:
@@ -119,6 +121,7 @@ class UserManagementPanel(tk.Frame):
         self._context_menu.add_command(label="✏️ Edit Role",      command=self._show_edit_role_dialog)
         self._context_menu.add_command(label="🛡️ Permission Details", command=self._show_permissions_dialog)
         self._context_menu.add_command(label="⏻ Toggle Status",  command=self._do_toggle_status)
+        self._context_menu.add_command(label="⚡ Toggle Auto-Login", command=self._do_toggle_auto_login)
         self._context_menu.add_command(label="🔓 Unlock Account", command=self._do_unlock_user)
         self._context_menu.add_command(label="🔑 Reset Password", command=self._show_reset_password_dialog)
         self._context_menu.add_separator()
@@ -143,6 +146,7 @@ class UserManagementPanel(tk.Frame):
         self.role_filter_var.set("All")
         self.status_filter_var.set("All")
         
+        self._local_auto_id = self.auth_service.get_local_auto_login_id()
         self._all_users = self.auth_service.get_all_users()
         self._refresh_tree()
 
@@ -158,6 +162,7 @@ class UserManagementPanel(tk.Frame):
             # Format values
             role_display = "🔵 Admin" if (u.role or "").lower() == "admin" else "User"
             status_display = "✅ Active" if u.is_active else "🔴 Inactive"
+            auto_login_display = "⚡ Yes (Local)" if u.id == getattr(self, '_local_auto_id', None) else "No"
             created = ""
             if hasattr(u, "created_at") and u.created_at:
                 if isinstance(u.created_at, datetime):
@@ -174,7 +179,7 @@ class UserManagementPanel(tk.Frame):
                 tag = "inactive"
 
             self.tree.insert("", "end", iid=str(u.id), values=(
-                u.id, u.username, u.email, role_display, status_display, created,
+                u.id, u.username, u.email, role_display, status_display, auto_login_display, created,
             ), tags=(tag,))
 
         self._update_stats(users)
@@ -278,7 +283,8 @@ class UserManagementPanel(tk.Frame):
 
         # Get current status from tree
         item = self.tree.item(self.tree.selection()[0])
-        current_active = "active" in str(item["values"][4]).lower()
+        status_text = str(item["values"][4]).lower()
+        current_active = "inactive" not in status_text and "active" in status_text
 
         if current_active:
             if not Messagebox.yesno(
@@ -292,6 +298,20 @@ class UserManagementPanel(tk.Frame):
         success, msg = self.auth_service.activate_account_direct(user_id, new_status, self.current_user.id)
         if success:
             self.load_users()
+        else:
+            Messagebox.show_error("Error", msg, parent=self.winfo_toplevel())
+
+    @AuthService.require_permission('User Management', 'edit')
+    def _do_toggle_auto_login(self):
+        sel = self._get_selected()
+        if not sel:
+            return
+        user_id, username = sel
+
+        success, msg = self.auth_service.toggle_auto_login(user_id, self.current_user.id)
+        if success:
+            self.load_users()
+            Messagebox.show_info("Success", msg, parent=self.winfo_toplevel())
         else:
             Messagebox.show_error("Error", msg, parent=self.winfo_toplevel())
 

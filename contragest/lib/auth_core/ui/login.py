@@ -1,4 +1,4 @@
-import os
+﻿import os
 import tkinter as tk
 from tkinter import ttk
 from ttkbootstrap.dialogs import Messagebox
@@ -24,56 +24,65 @@ class AuthLoginWindow(tk.Frame):
         self._create_widgets()
 
     def _create_widgets(self):
-        # Container
-        container = ttk.Frame(self, padding=20)
-        container.pack(expand=True, fill='both')
-
-        # Company Logo
+        # We assume self is embedded inside AuthApp which fills the window.
+        self.configure(bg="#06021A") # Deep AI Violet bg
+        
+        # Center container
+        container = tk.Frame(self, bg="#1A0A3A", padx=40, pady=40, 
+                             highlightbackground="#4B1D8C", highlightthickness=2)
+        container.place(relx=0.5, rely=0.5, anchor="center", width=420)
+        
+        # Logo
         self._load_logo(container)
-
+        
         # Title
-        ttk.Label(container, text="Login", font=("Helvetica", 16, "bold")).pack(pady=10)
-
+        tk.Label(container, text="SYSTEM LOGIN", font=("Inter", 14, "bold"), 
+                 bg="#1A0A3A", fg="#E8E6FF").pack(pady=(0, 25))
+                 
         # Username
-        ttk.Label(container, text="Username").pack(anchor='w')
+        tk.Label(container, text="USERNAME", font=("Inter", 9, "bold"), 
+                 bg="#1A0A3A", fg="#8B82B5").pack(anchor='w', pady=(0, 5))
+        
         usernames = self.auth_service.get_all_usernames()
-        self.username_combo = ttk.Combobox(container, textvariable=self.username_var, values=usernames, state="readonly")
-        self.username_combo.pack(fill='x', pady=(0, 10))
+        self.username_combo = ttk.Combobox(container, textvariable=self.username_var, values=usernames, state="normal", font=("Inter", 11))
+        self.username_combo.pack(fill='x', pady=(0, 20))
         self.username_combo.bind("<Return>", lambda e: self._do_login())
         if usernames:
             self.username_combo.current(0)
-
+            
         # Password
-        ttk.Label(container, text="Password").pack(anchor='w')
-        password_entry = ttk.Entry(container, textvariable=self.password_var, show="*")
-        password_entry.pack(fill='x', pady=(0, 10))
+        tk.Label(container, text="PASSWORD", font=("Inter", 9, "bold"), 
+                 bg="#1A0A3A", fg="#8B82B5").pack(anchor='w', pady=(0, 5))
+                 
+        password_entry = ttk.Entry(container, textvariable=self.password_var, show="•", font=("Inter", 11))
+        password_entry.pack(fill='x', pady=(0, 30))
         password_entry.bind("<Return>", lambda e: self._do_login())
-        
-        # Auto-focus the password entry
         password_entry.focus_set()
-
-        # Login button
-        btn_frame = ttk.Frame(container)
-        btn_frame.pack(fill='x', pady=10)
-        ttk.Button(btn_frame, text="Login", command=self._do_login).pack(fill='x')
-
-        # Action links
-        links_frame = ttk.Frame(container)
-        links_frame.pack(fill='x', pady=(5, 0))
-
-        forgot_btn = ttk.Button(
-            links_frame, text="Forgot Password?",
-            command=self._open_password_reset,
-            cursor="hand2",
-        )
-        forgot_btn.pack(side='left', padx=(0, 10))
-
-        activate_btn = ttk.Button(
-            links_frame, text="Activate Account",
-            command=self._open_activation,
-            cursor="hand2",
-        )
-        activate_btn.pack(side='right')
+        
+        # Login Button
+        btn_login = tk.Button(container, text="SECURE ACCESS", font=("Inter", 10, "bold"),
+                              bg="#06B6D4", fg="#FFFFFF", activebackground="#D946EF", 
+                              activeforeground="#FFFFFF", bd=0, cursor="hand2",
+                              command=self._do_login, pady=10)
+        btn_login.pack(fill='x', pady=(0, 20))
+        
+        # Links
+        links_frame = tk.Frame(container, bg="#1A0A3A")
+        links_frame.pack(fill='x')
+        
+        lbl_forgot = tk.Label(links_frame, text="Forgot Password?", font=("Inter", 9), 
+                              bg="#1A0A3A", fg="#8B82B5", cursor="hand2")
+        lbl_forgot.pack(side="left")
+        lbl_forgot.bind("<Button-1>", lambda e: self._open_password_reset())
+        lbl_forgot.bind("<Enter>", lambda e: lbl_forgot.config(fg="#06B6D4"))
+        lbl_forgot.bind("<Leave>", lambda e: lbl_forgot.config(fg="#8B82B5"))
+        
+        lbl_activate = tk.Label(links_frame, text="Activate Account", font=("Inter", 9), 
+                                bg="#1A0A3A", fg="#8B82B5", cursor="hand2")
+        lbl_activate.pack(side="right")
+        lbl_activate.bind("<Button-1>", lambda e: self._open_activation())
+        lbl_activate.bind("<Enter>", lambda e: lbl_activate.config(fg="#D946EF"))
+        lbl_activate.bind("<Leave>", lambda e: lbl_activate.config(fg="#8B82B5"))
 
     def _do_login(self):
         username = self.username_var.get()
@@ -106,9 +115,11 @@ class AuthLoginWindow(tk.Frame):
             config = session.query(AppConfig).first()
             if config and config.company_logo_path and os.path.exists(config.company_logo_path):
                 img = Image.open(config.company_logo_path)
-                img.thumbnail((120, 120)) # Larger for login
+                
+                # Dark Mode Optimization: Try to convert dark logos or just resize
+                img.thumbnail((140, 140)) # Slightly larger for premium centered look
                 self.logo_img = ImageTk.PhotoImage(img)
-                ttk.Label(parent, image=self.logo_img).pack(pady=(0, 15))
+                ttk.Label(parent, image=self.logo_img, background="#1A0A3A").pack(pady=(0, 20))
         except Exception as e:
             print(f"Error loading logo in LoginUI: {e}")
         finally:

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chronos Insight - Workforce Intelligence</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Top App Bar -->
+        <header class="top-bar glass">
+            <div class="user-info">
+                <div class="avatar">
+                    <img src="https://i.pravatar.cc/150?img=11" alt="Executive">
+                    <span class="status-dot online"></span>
+                </div>
+                <div class="header-text">
+                    <h1>Chronos</h1>
+                    <p>Executive Dashboard</p>
+                </div>
+            </div>
+            <div class="actions">
+                <button class="icon-btn">
+                    <i class="fa-solid fa-bell"></i>
+                    <span class="badge">3</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Scrolling Content -->
+        <main class="content">
+            <!-- Executive Summary -->
+            <section class="kpi-grid">
+                <div class="kpi-card focus">
+                    <div class="kpi-header">
+                        <i class="fa-solid fa-users"></i>
+                        <span>Live Workforce</span>
+                    </div>
+                    <div class="kpi-value text-emerald">87<span class="kpi-percent">%</span></div>
+                    <div class="kpi-footer">
+                        <span>+2.4% vs Yesterday</span>
+                    </div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-header">
+                        <i class="fa-solid fa-door-open text-gold"></i>
+                        <span>Out of Office</span>
+                    </div>
+                    <div class="kpi-value text-gold">11<span class="kpi-percent">%</span></div>
+                    <div class="kpi-footer">
+                        <span>Authorized Leaves</span>
+                    </div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-header">
+                        <i class="fa-solid fa-clock text-coral"></i>
+                        <span>Tardiness</span>
+                    </div>
+                    <div class="kpi-value text-coral">2<span class="kpi-percent">%</span></div>
+                    <div class="kpi-footer">
+                        <span>Below benchmark</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Interactive Map / Dotted Grid Mockup -->
+            <section class="floor-map-container">
+                <div class="section-title">
+                    <h2>Live Telemetry</h2>
+                    <span class="pulse-indicator">Live</span>
+                </div>
+                <div class="map-grid">
+                    <!-- Dots representing pinged zones -->
+                    <div class="dot active" style="top: 20%; left: 30%;"></div>
+                    <div class="dot active" style="top: 50%; left: 45%;"></div>
+                    <div class="dot active" style="top: 70%; left: 60%;"></div>
+                    <div class="dot active" style="top: 30%; left: 80%;"></div>
+                    <div class="dot gold" style="top: 80%; left: 20%;"></div>
+                    <div class="dot coral" style="top: 40%; left: 70%;"></div>
+                    <div class="grid-layer"></div>
+                </div>
+            </section>
+
+            <!-- Live Activity Feed -->
+            <section class="feed-container">
+                <div class="feed-header">
+                    <h2>Live Activity Feed</h2>
+                    <button class="filter-btn"><i class="fa-solid fa-sliders"></i></button>
+                </div>
+
+                <div class="feed-list">
+                    <!-- Feed Item 1 -->
+                    <div class="feed-item">
+                        <div class="feed-avatar">
+                            <img src="https://i.pravatar.cc/150?img=33" alt="User">
+                            <span class="status-ring emerald"></span>
+                        </div>
+                        <div class="feed-details">
+                            <h3 class="feed-name">Alexandre Dubois</h3>
+                            <p class="feed-role">Checked In • Security Desk</p>
+                        </div>
+                        <div class="feed-time">08:04:12</div>
+                    </div>
+
+                    <!-- Feed Item 2 -->
+                    <div class="feed-item">
+                        <div class="feed-avatar">
+                            <img src="https://i.pravatar.cc/150?img=47" alt="User">
+                            <span class="status-ring coral"></span>
+                        </div>
+                        <div class="feed-details">
+                            <h3 class="feed-name">Sarah Jenkins</h3>
+                            <p class="feed-role">Late Arrival • Front Gate</p>
+                        </div>
+                        <div class="feed-time">08:15:33</div>
+                    </div>
+
+                    <!-- Feed Item 3 -->
+                    <div class="feed-item">
+                        <div class="feed-avatar">
+                            <img src="https://i.pravatar.cc/150?img=12" alt="User">
+                            <span class="status-ring gold"></span>
+                        </div>
+                        <div class="feed-details">
+                            <h3 class="feed-name">Mehdi Ben Lamine</h3>
+                            <p class="feed-role">Out of Office • Sick Leave</p>
+                        </div>
+                        <div class="feed-time">09:00:00</div>
+                    </div>
+
+                    <!-- Feed Item 4 -->
+                    <div class="feed-item">
+                        <div class="feed-avatar">
+                            <img src="https://i.pravatar.cc/150?img=28" alt="User">
+                            <span class="status-ring emerald"></span>
+                        </div>
+                        <div class="feed-details">
+                            <h3 class="feed-name">Elena Rossi</h3>
+                            <p class="feed-role">Checked In • Main Office</p>
+                        </div>
+                        <div class="feed-time">08:55:01</div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Bottom Navigation -->
+        <nav class="bottom-nav glass">
+            <a href="#" class="nav-item active">
+                <i class="fa-solid fa-chart-pie"></i>
+                <span>Pulse</span>
+            </a>
+            <a href="#" class="nav-item">
+                <i class="fa-solid fa-users"></i>
+                <span>Staff</span>
+            </a>
+            <a href="#" class="nav-item">
+                <i class="fa-solid fa-map-location-dot"></i>
+                <span>Map</span>
+            </a>
+            <a href="#" class="nav-item">
+                <i class="fa-solid fa-gear"></i>
+                <span>Settings</span>
+            </a>
+        </nav>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>

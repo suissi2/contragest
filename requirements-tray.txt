@@ -1,0 +1,15 @@
+# Runtime dependencies for the Contragest system-tray agent.
+# Install into the deployment venv:  pip install -r requirements-tray.txt
+#
+# pystray  -> system tray icon, context menu, balloon notifications
+#             (pure ctypes on Windows; works on Python 3.14)
+# pillow   -> runtime generation of status-tinted tray icons
+#             (already a runtime dep of the desktop GUI)
+# pywin32  -> SCM state queries + single-instance mutex
+#             (already a runtime dep of the ContragestSync service)
+pystray>=0.19.5
+pillow>=10.0
+pywin32>=308
+
+# Packaging: build the tray .exe with PyInstaller.
+pyinstaller>=6.11

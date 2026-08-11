@@ -3,6 +3,14 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(__file__))
 
+# The PASS/FAIL marks are unicode emoji; fall back to ASCII-safe output on
+# legacy console encodings (cp1252) so the suite never crashes on print().
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(errors="replace")
+    except Exception:
+        pass
+
 from datetime import datetime, timedelta
 from contragest.core.database import Base, engine, SessionLocal
 from contragest.features.auth.service import User, AuditLog, AuthService, init_db
@@ -18,7 +26,7 @@ FAIL = "\u274c"
 
 results = []
 
-def test(name, condition, detail=""):
+def check(name, condition, detail=""):
     status = PASS if condition else FAIL
     results.append((status, name))
     print(f"  {status} {name}" + (f" — {detail}" if detail else ""))
@@ -43,23 +51,23 @@ print("\n=== Test Suite: Account Management Features ===\n")
 print("[1] Registration & Password Strength")
 try:
     core.register_user(test_user, test_email, "weak")
-    test("Weak password rejected", False)
+    check("Weak password rejected", False)
 except ValueError as e:
-    test("Weak password rejected", "8 characters" in str(e), str(e))
+    check("Weak password rejected", "8 characters" in str(e), str(e))
 
 user = core.register_user(test_user, test_email, test_pass)
-test("User registered", user is not None and user.username == test_user)
-test("Account inactive after registration", not user.is_active)
+check("User registered", user is not None and user.username == test_user)
+check("Account inactive after registration", not user.is_active)
 
 # 2. Login before activation
 print("\n[2] Login Before Activation")
 u, msg = core.authenticate_user(test_user, test_pass)
-test("Login blocked when inactive", u is None and "not activated" in msg.lower(), msg)
+check("Login blocked when inactive", u is None and "not activated" in msg.lower(), msg)
 
 # 3. Activation with wrong OTP
 print("\n[3] Activation — Wrong OTP")
 ok, msg = core.activate_account(test_user, "000000")
-test("Wrong OTP rejected", not ok, msg)
+check("Wrong OTP rejected", not ok, msg)
 
 # 4. Activation with correct OTP (we need to retrieve it from DB)
 print("\n[4] Activation — Correct OTP (via resend)")
@@ -72,20 +80,20 @@ s.commit()
 s.close()
 
 ok, msg = core.resend_activation_otp(test_user)
-test("Resend OTP succeeds", ok, msg)
+check("Resend OTP succeeds", ok, msg)
 
 # Cooldown enforcement
 ok2, msg2 = core.resend_activation_otp(test_user)
-test("Resend cooldown enforced", not ok2 and "wait" in msg2.lower(), msg2)
+check("Resend cooldown enforced", not ok2 and "wait" in msg2.lower(), msg2)
 
 # Activate via admin direct
 ok3, msg3 = core.activate_account_direct(user.id, True, user.id)
-test("Admin direct activation works", ok3, msg3)
+check("Admin direct activation works", ok3, msg3)
 
 # 5. Login after activation
 print("\n[5] Login After Activation")
 u, msg = core.authenticate_user(test_user, test_pass)
-test("Login succeeds after activation", u is not None and msg == "Success")
+check("Login succeeds after activation", u is not None and msg == "Success")
 
 # 6. Login rate-limiting
 print("\n[6] Login Rate-Limiting")
@@ -93,7 +101,7 @@ for i in range(5):
     core.authenticate_user(test_user, "wrongpassword")
 
 u, msg = core.authenticate_user(test_user, test_pass)
-test("Account locked after 5 failed attempts", u is None and "locked" in msg.lower(), msg)
+check("Account locked after 5 failed attempts", u is None and "locked" in msg.lower(), msg)
 
 # Clear lockout for subsequent tests
 s = SessionLocal()
@@ -106,12 +114,12 @@ s.close()
 # 7. Password reset flow
 print("\n[7] Password Reset — Request")
 ok, msg = core.request_password_reset(test_email)
-test("Password reset requested", ok, msg)
+check("Password reset requested", ok, msg)
 
 # Reset with wrong OTP
 print("\n[8] Password Reset — Wrong OTP")
 ok, msg = core.reset_password(test_email, "000000", "NewPass123")
-test("Wrong reset OTP rejected", not ok, msg)
+check("Wrong reset OTP rejected", not ok, msg)
 
 # Reset with expired token
 print("\n[9] Password Reset — Expiration")
@@ -123,7 +131,7 @@ s.commit()
 s.close()
 
 ok, msg = core.reset_password(test_email, "123456", "NewPass123")
-test("Expired reset token rejected", not ok and "expired" in msg.lower(), msg)
+check("Expired reset token rejected", not ok and "expired" in msg.lower(), msg)
 
 # Password reset with correct OTP (test the complete flow)
 print("\n[10] Password Reset — Full Flow")
@@ -137,23 +145,23 @@ salt = u.salt
 s.close()
 
 ok, msg = core.request_password_reset(test_email)
-test("Re-request after cooldown", ok)
+check("Re-request after cooldown", ok)
 
 # Retrieve the stored token hash and reconstruct (for testing only)
 s = SessionLocal()
 u = s.query(User).filter_by(username=test_user).first()
 stored_hash = u.reset_token
-test("Reset token stored in DB", stored_hash is not None)
+check("Reset token stored in DB", stored_hash is not None)
 s.close()
 
 # Test that reset fails with invalid OTP (password strength is checked AFTER OTP validation)
 ok, msg = core.reset_password(test_email, "123456", "weak")
-test("Invalid OTP rejected before password check", not ok, msg)
+check("Invalid OTP rejected before password check", not ok, msg)
 
 # Non-existent email
 print("\n[11] Password Reset — Non-Existent Email")
 ok, msg = core.request_password_reset("nobody@example.com")
-test("Generic message for unknown email (no enumeration)", ok and "if an account" in msg.lower(), msg)
+check("Generic message for unknown email (no enumeration)", ok and "if an account" in msg.lower(), msg)
 
 # ── Cleanup ────────────────────────────────────────────────────
 cleanup_user(test_user)

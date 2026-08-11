@@ -1,0 +1,79 @@
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# --- Environment & secrets ---
+.venv/
+.env
+credentials.json
+token.json
+.local_auth.json
+
+# --- Data / backups / logs ---
+*.db
+*.db-shm
+*.db-wal
+backups/
+logs/
+*.log
+
+# --- Node ---
+node_modules/
+
+# --- Intermediate / generated outputs ---
+.tmp/
+scratch/
+*.xlsx
+*.pdf
+*.csv
+assets/photos/
+
+# --- Root-level one-off debug & scratch scripts ---
+check_*.py
+debug_*.py
+find_*.py
+inspect_*.py
+verify_*.py
+trace_*.py
+search_*.py
+list_*.py
+ali_*.py
+tmp_*.py
+fix_*.py
+recalc_*.py
+scratch_*.py
+all_schedules.py
+sim_match.py
+repro_empty_table.py
+pinpoint_export.py
+precision_check.py
+cleanup_fake_records.py
+configure_employee_227.py
+process_clocking_data.py
+brute_otp.py
+benchmark_email.py
+diagnose_email_issue.py
+final_check.py
+check_windows.py
+debug_otp.py
+debug_schema.py
+inspect_schemas.py
+inspect_rbac_state.py
+final_key_pass.py
+fix_717_history.py
+trace_enrichment.py
+
+# --- Root-level debug output files ---
+app_log.txt
+LOGIN_FOLDER_COPY.txt
+output.txt
+temp_grep.txt
+perms.txt
+sched_output.txt
+d985_result.txt
+debug_985_out.txt
+debug_rbac*.txt
+email_diag*.txt
+tmp*.txt

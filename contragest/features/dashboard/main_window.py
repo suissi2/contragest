@@ -13,8 +13,11 @@ from contragest.features.auth.service import AuthService
 
 from contragest.core.layout import pack_start, pack_end, is_rtl
 from contragest.core.system_info import get_pc_info, get_location_and_weather
+from contragest.core.gui_utils import calculate_daily_password, DesignTokens, apply_premium_style
 from PIL import Image, ImageTk
 import os
+from contragest.features.employee_manager.ui import EmployeeManagerWindow
+from contragest.core.status_bar import StatusBarController, StatusLabel
 
 class MainWindow(ttk.Frame):
     def __init__(self, parent, user, logout_callback=None):
@@ -43,15 +46,24 @@ class MainWindow(ttk.Frame):
             'logout': self.handle_logout,
             'exit': self.confirm_exit,
             'view_reports': self.show_reports,
-            'send_alerts': self.manual_send_alerts
+            'employee_manager': self.open_employee_manager,
+            'data_entry': self.open_data_entry,
+            'send_alerts': self.manual_send_alerts,
+            'pointage': self.open_pointage,
+            'chronos': self.open_chronos
         }
+        # 1. Navigation Ribbon (Always at the Top)
         self.ribbon = RibbonMenu(self, callbacks, auth_service=self.auth_service, user=user)
         self.ribbon.pack(fill=X, side=TOP)
 
-        # Main Content Area (Notebook for switching views)
+        # 2. Status Bar Controller (Bottom) — single instance, owns the one true StatusBar
+        self.sb_controller = StatusBarController(self, user=user)
+        self.sb_controller.set_status(f"Logged in as: {user.username} ({user.role})")
+
+        # 3. Main Content Area (Fills the rest)
         self.main_notebook = ttk.Notebook(self)
         self.main_notebook.pack(fill=BOTH, expand=YES)
-        
+
         # Dashboard Tab (Home/Hero)
         self.dashboard_frame = ttk.Frame(self.main_notebook)
         self.main_notebook.add(self.dashboard_frame, text="🏠 Home")
@@ -66,10 +78,8 @@ class MainWindow(ttk.Frame):
         self.hr_frame = ttk.Frame(self.main_notebook)
         self.main_notebook.add(self.hr_frame, text="👔 HR")
         
-        hr_content = ttk.Frame(self.hr_frame)
-        hr_content.place(relx=0.5, rely=0.4, anchor=CENTER)
-        ttk.Label(hr_content, text="👔 HR Management Hub", font=("Helvetica", 18, "bold")).pack(pady=(0, 10))
-        ttk.Label(hr_content, text="Select a tool from the HR Ribbon Menu above to begin.", font=("Helvetica", 12)).pack()
+        from contragest.features.dashboard.hr_dashboard import HRDashboard
+        self.hr_dashboard = HRDashboard(self.hr_frame)
 
         # Reports window reference (opened on demand as Toplevel)
         self.reports_window = None
@@ -82,8 +92,8 @@ class MainWindow(ttk.Frame):
             # Clean styling to replace dashboard when active
             tools_content = ttk.Frame(self.tools_frame)
             tools_content.place(relx=0.5, rely=0.4, anchor=CENTER)
-            ttk.Label(tools_content, text="🛠️ Administrative Tools Area", font=("Helvetica", 18, "bold")).pack(pady=(0, 10))
-            ttk.Label(tools_content, text="Select a tool from the Ribbon Menu above to begin.", font=("Helvetica", 12)).pack()
+            ttk.Label(tools_content, text="🛠️ Administrative Tools Area", font=("Space Mono", 18, "bold")).pack(pady=(0, 10))
+            ttk.Label(tools_content, text="Select a tool from the Ribbon Menu above to begin.", font=("Space Mono", 12)).pack()
             
         # Reports Tab (Analytics Workspace)
         if user.role == 'admin':
@@ -92,20 +102,21 @@ class MainWindow(ttk.Frame):
             
             reports_content = ttk.Frame(self.reports_frame)
             reports_content.place(relx=0.5, rely=0.4, anchor=CENTER)
-            ttk.Label(reports_content, text="📊 Reports & Analytics Hub", font=("Helvetica", 18, "bold")).pack(pady=(0, 10))
-            ttk.Label(reports_content, text="Select a report type from the Ribbon Menu above to view detailed data.", font=("Helvetica", 12)).pack()
+            ttk.Label(reports_content, text="📊 Reports & Analytics Hub", font=("Space Mono", 18, "bold")).pack(pady=(0, 10))
+            ttk.Label(reports_content, text="Select a report type from the Ribbon Menu above to view detailed data.", font=("Space Mono", 12)).pack()
             
         
         # Hide notebook tabs for a Ribbon-sync feel
         style = ttk.Style()
+        apply_premium_style(style)
         style.configure('Main.TNotebook', tabposition='n', padding=0)
         style.layout('Main.TNotebook.Tab', []) 
         self.main_notebook.configure(style='Main.TNotebook')
-        self.create_status_bar()
-        self.status_label.config(text=f"Logged in as: {user.username} ({user.role})")
         
-        # Start Clock
-        self.update_clock()
+        # Override global cyborg theme mapping with Glassmorphism Palette
+        style.configure('TFrame', background=DesignTokens.BG_APP)
+        style.configure('TLabel', background=DesignTokens.BG_APP, foreground=DesignTokens.TEXT)
+        self.configure(style='TFrame')
         
         # Initialize visual effects
         self.flash_state = False
@@ -118,7 +129,7 @@ class MainWindow(ttk.Frame):
         # Run startup check
         self.after(1000, self.run_startup_check)
         
-        AuthService().log_action(user.id, "SESSION_START", "Authenticated access to dashboard")
+        self.auth_service.log_action(user.id, "SESSION_START", "Authenticated access to dashboard")
 
     def setup_window(self):
         """Applies window-level settings to the root."""
@@ -168,6 +179,7 @@ class MainWindow(ttk.Frame):
             utility_menu = ttk.Menu(settings_menu, tearoff=0)
             utility_menu.add_command(label="🔄 " + tr("recover_deleted_contracts"), command=self.open_recovery_manager)
             utility_menu.add_command(label="👥 User Management", command=self.open_user_management)
+            utility_menu.add_command(label="⚠️ Error History", command=self.open_error_history)
             settings_menu.add_cascade(label=tr("utility"), menu=utility_menu)
         else:
             print(f"DEBUG: Non-admin role '{self.current_user.role}' detected. Skipping Utility menu.")
@@ -177,13 +189,13 @@ class MainWindow(ttk.Frame):
 
     def create_home_view(self):
         # Top Bar (Stats) - Globally visible in Home
-        self.stats_frame = ttk.Frame(self.dashboard_frame, bootstyle=SECONDARY)
+        self.stats_frame = ttk.Frame(self.dashboard_frame, style='TFrame')
         self.stats_frame.pack(fill=X, padx=10, pady=10)
         
-        self.lbl_stats = ttk.Label(self.stats_frame, text="", font=("Helvetica", 11), bootstyle="inverse-secondary")
+        self.lbl_stats = ttk.Label(self.stats_frame, text="", font=("Space Mono", 11, "bold"), foreground='#00A6F4', background='#E7E5E4', padding=10)
         self.lbl_stats.pack(pady=10)
         
-        self.logo_label = ttk.Label(self.stats_frame, bootstyle="inverse-secondary")
+        self.logo_label = ttk.Label(self.stats_frame, style='TLabel')
         self.logo_label.pack(side=LEFT, padx=20)
         self.load_company_logo()
         
@@ -198,8 +210,8 @@ class MainWindow(ttk.Frame):
         self.hero_logo.pack()
         self.load_company_logo(label=self.hero_logo, size=(300, 300))
         
-        ttk.Label(hero_content, text="Contragest", font=("Helvetica", 24, "bold")).pack(pady=20)
-        ttk.Label(hero_content, text="Professional Contract Management System", font=("Helvetica", 14)).pack()
+        ttk.Label(hero_content, text="Contragest", font=(DesignTokens.FONT_PRIMARY, 25, "bold"), foreground=DesignTokens.PRIMARY).pack(pady=(12, 3))
+        ttk.Label(hero_content, text="Professional Contract Management System", font=(DesignTokens.FONT_PRIMARY, 11), foreground=DesignTokens.TEXT_MUTED).pack()
 
     def create_contracts_view(self):
         # Toolbar (Cleaned)
@@ -359,47 +371,10 @@ class MainWindow(ttk.Frame):
         finally:
             db.close()
 
-    def create_status_bar(self):
-        """Creates a sophisticated bottom toolbar."""
-        self.status_bar = ttk.Frame(self, bootstyle=DARK)
-        self.status_bar.pack(side=BOTTOM, fill=X)
-        
-        # PC Info Section
-        pc_name, local_ip = get_pc_info()
-        self.lbl_pc = ttk.Label(self.status_bar, text=f"💻 {pc_name} ({local_ip})", font=("Helvetica", 9), bootstyle="inverse-dark")
-        self.lbl_pc.pack(side=LEFT, padx=10, pady=2)
-        
-        # Session Status Section
-        self.status_label = ttk.Label(self.status_bar, text="", font=("Helvetica", 9), bootstyle="inverse-dark")
-        self.status_label.pack(side=LEFT, padx=10, pady=2)
-        
-        ttk.Separator(self.status_bar, orient=VERTICAL).pack(side=LEFT, fill=Y, padx=5, pady=2)
-        
-        # Location & Weather Section
-        self.lbl_env = ttk.Label(self.status_bar, text="🌍 " + tr("loading") + "...", font=("Helvetica", 9), bootstyle="inverse-dark")
-        self.lbl_env.pack(side=LEFT, padx=10, pady=2)
-        
-        ttk.Separator(self.status_bar, orient=VERTICAL).pack(side=LEFT, fill=Y, padx=5, pady=2)
-        
-        # Clock Section (Flush Right)
-        self.lbl_clock = ttk.Label(self.status_bar, text="", font=("Helvetica", 9, "bold"), bootstyle="inverse-dark")
-        self.lbl_clock.pack(side=RIGHT, padx=10, pady=2)
-
-        ttk.Sizegrip(self.status_bar).pack(side=RIGHT)
-
-    def update_clock(self):
-        """Updates the clock in the status bar every second."""
-        if not self.winfo_exists():
-            return
-            
-        now = datetime.now()
-        self.lbl_clock.config(text=now.strftime("📅 %d/%m/%Y   🕒 %H:%M:%S"))
-        self.after(1000, self.update_clock)
-
     def on_env_data_received(self, location, temp):
-        """Callback from background thread to update environmental UI."""
-        if self.winfo_exists() and hasattr(self, 'lbl_env') and self.lbl_env.winfo_exists():
-            self.after(0, lambda: self.lbl_env.config(text=f"🌍 {location}   🌡️ {temp}"))
+        """Callback from background thread to update environmental UI via the status bar."""
+        if self.winfo_exists() and self.sb_controller.winfo_exists():
+             self.sb_controller.set_env_info(location, temp)
 
     def confirm_exit(self):
         """Prompt user with a styled dialog before exiting."""
@@ -423,6 +398,10 @@ class MainWindow(ttk.Frame):
             
         if hasattr(self, 'scheduler') and self.scheduler.running:
             self.scheduler.stop()
+            
+        if hasattr(self, 'hr_dashboard'):
+            self.hr_dashboard.stop_polling()
+            
         self.current_user = None
         if self.logout_callback:
             self.logout_callback()
@@ -430,6 +409,8 @@ class MainWindow(ttk.Frame):
     def __del__(self):
         if hasattr(self, 'scheduler') and self.scheduler.running:
             self.scheduler.stop()
+        if hasattr(self, 'hr_dashboard'):
+            self.hr_dashboard.stop_polling()
 
     def animate_flash(self):
         """Creates a smooth flashing effect for critical status rows."""
@@ -474,17 +455,7 @@ class MainWindow(ttk.Frame):
             self.delete_contract()
 
     def calculate_deletion_password(self):
-        """
-        Formula: ((day + month + (year % 100)) * 2) - 10
-        For 11/02/2026: (11 + 2 + 26) * 2 - 10 = 39 * 2 - 10 = 78 - 10 = 68
-        Note: The user example said 11/02/2026 -> (11+2+26)*2-10.
-        """
-        now = datetime.now()
-        day = now.day
-        month = now.month
-        year_short = now.year % 100
-        password = ((day + month + year_short) * 2) - 10
-        return str(password)
+        return calculate_daily_password()
 
     def on_scheduled_alert_triggered(self, count, success):
         """Callback from background thread when a scheduled alert runs."""
@@ -494,7 +465,7 @@ class MainWindow(ttk.Frame):
             # Maybe show a toast or small notification instead of a blocking Messagebox 
             # for "scheduled" background alerts? 
             # But the user might want a clear warning if it fails.
-            self.after(0, lambda: Messagebox.show_error(tr("email_failed").format(count=count), tr("error")))
+            self.after(0, lambda: Messagebox.show_error(tr("email_failed", count=count), tr("error")))
 
     def run_startup_check(self):
         from contragest.core.database import SessionLocal, AppConfig
@@ -535,10 +506,7 @@ class MainWindow(ttk.Frame):
         logger.info("Running automated startup check...")
         count, sent_success = alert_manager.check_and_notify(is_automated=True)
         if count > 0:
-            if sent_success:
-                Messagebox.show_warning(f"Sent alerts for {count} expiring contracts!", "Expiration Alert")
-            else:
-                Messagebox.show_error(tr("email_failed").format(count=count), tr("error"))
+                Messagebox.show_error(tr("email_failed", count=count), tr("error"))
     
     @AuthService.require_permission('Contracts', 'view')
     def manual_send_alerts(self):
@@ -550,9 +518,9 @@ class MainWindow(ttk.Frame):
         count, sent_success = alert_manager.check_and_notify()
         if count > 0:
             if sent_success:
-                Messagebox.show_info(tr("alerts_sent").format(count=count), tr("success"))
+                Messagebox.show_info(tr("alerts_sent", count=count), tr("success"))
             else:
-                Messagebox.show_error(tr("email_failed").format(count=count), tr("error"))
+                Messagebox.show_error(tr("email_failed", count=count), tr("error"))
         else:
             Messagebox.show_info(tr("no_expiring_contracts"), tr("information"))
 
@@ -592,6 +560,53 @@ class MainWindow(ttk.Frame):
     def open_user_management(self):
         from contragest.features.auth.user_management import UserManagementWindow
         UserManagementWindow(self, self.current_user)
+
+    @AuthService.require_permission('Employees', 'view')
+    def open_employee_manager(self):
+        EmployeeManagerWindow(self.parent, current_user=self.current_user)
+
+    @AuthService.require_permission('Employees', 'add')
+    def open_data_entry(self):
+        """Open the Data Entry Form directly from the ribbon."""
+        from contragest.features.employee_manager.data_entry_form import DataEntryForm
+        DataEntryForm(self.parent, mode="add")
+
+    def open_error_history(self):
+        """Open the detailed error history log."""
+        from contragest.core.error_toast import ErrorHistoryWindow
+        ErrorHistoryWindow(self.parent)
+
+    def open_pointage(self):
+        """Open the Pointage (Time & Attendance) management window."""
+        try:
+            from contragest.features.pointage.ui import PointageWindow
+            PointageWindow(self.parent, main_window=self)
+        except Exception as e:
+            from ttkbootstrap.dialogs import Messagebox
+            import logging
+            logging.error(f"Failed to open Pointage Window: {e}")
+            Messagebox.show_error(
+                f"Could not open Attendance Terminal.\n\nDatabase error: {e}\n\nPlease check your network connection to the server.",
+                "Database Error"
+            )
+
+    def open_chronos(self):
+        """Open the Chronos Executive Mobile Dashboard mockup."""
+        from contragest.features.pointage.chronos_ui import ChronosDashboard
+        # It's a Toplevel equivalent (ttk.Window), so we can just instantiate it
+        dashboard = ChronosDashboard()
+        # Keep reference to prevent garbage collection if necessary, or let it manage itself
+        self._chronos_window = dashboard
+        dashboard.show() if hasattr(dashboard, 'show') else None
+
+    def show_employee_on_dashboard(self, reg_number):
+        """Switches to the HR Dashboard tab and applies the REG number filter."""
+        # 1. Select the HR tab (index 2 based on Notebook add order: Home(0), Contracts(1), HR(2))
+        self.main_notebook.select(2)
+        
+        # 2. Apply the filter on the HRDashboard instance
+        if hasattr(self, "hr_dashboard"):
+            self.hr_dashboard.set_reg_filter(reg_number)
 
     @AuthService.require_permission('Contracts', 'edit')
     def open_edit_contract(self):
@@ -773,6 +788,11 @@ class MainWindow(ttk.Frame):
             self.reports_window.geometry("1200x700")
             self.reports_window.resizable(True, True)
             
+            # Lightweight status label for reports child window
+            self.reports_status_bar = StatusLabel(self.reports_window)
+            self.reports_status_bar.pack(side=BOTTOM, fill=X)
+            self.reports_status_bar.set_status("Viewing Reports")
+            
             from contragest.features.reports.reports_view import ReportsView
             reports_view = ReportsView(self.reports_window)
             reports_view.pack(fill='both', expand=True)
@@ -797,6 +817,5 @@ class MainWindow(ttk.Frame):
     @AuthService.require_permission('Audit Log', 'view')
     def open_mouchard(self):
         from contragest.features.auth.mouchard_window import MouchardWindow
-        from contragest.features.auth.service import AuthService
         MouchardWindow(self, AuthService(), self.current_user)
 

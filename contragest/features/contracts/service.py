@@ -1,4 +1,4 @@
-from datetime import date, datetime
+﻿from datetime import date, datetime
 from typing import Optional, List, Tuple
 from sqlalchemy.orm import Session
 from contragest.core.database import Contract, ContractHistory, Employee

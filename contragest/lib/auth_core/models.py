@@ -1,4 +1,4 @@
-from datetime import datetime
+﻿from datetime import datetime
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
 from sqlalchemy.orm import relationship, declared_attr
 from typing import Optional
@@ -46,6 +46,8 @@ class UserMixin:
     role = Column(String, default='user') # 'admin' or 'user' (Legacy)
     role_id = Column(Integer, ForeignKey('auth_roles.id'), nullable=True)
     is_active = Column(Boolean, default=False)
+    auto_login = Column(Boolean, default=False)
+
     
     @declared_attr
     def role_obj(cls):

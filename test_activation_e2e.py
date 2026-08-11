@@ -33,11 +33,21 @@ def test_full_cycle():
         # let's try to 'resend' it and capture it by mocking the email service
         print("\nRequesting Resend and capturing OTP...")
         
+        # Bypass 60-second cooldown
+        from datetime import timedelta, datetime
+        session = SessionLocal()
+        user_in_db = session.query(User).filter_by(username=test_user).first()
+        user_in_db.otp_created_at = datetime.now() - timedelta(seconds=61)
+        session.commit()
+        session.close()
+        
         class MockEmailService:
+            def __init__(self):
+                self.captured_otp = None
             def send_email(self, email, subject, body):
                 # The body contains <h1>OTP</h1>
                 import re
-                match = re.search(r'<h1>(\d+)</h1>', body)
+                match = re.search(r'<h1[^>]*>(\d+)</h1>', body)
                 if match:
                     self.captured_otp = match.group(1)
                 else:

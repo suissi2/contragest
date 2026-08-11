@@ -215,8 +215,39 @@ def migrate():
                 print(f"Column '{col_name}' added.")
             except Exception as e:
                 print(f"Error adding column '{col_name}': {e}")
-        else:
-            print(f"'{col_name}' column already exists in 'audit_logs'.")
+    # ── New column for Auto Punch ──
+    cursor.execute("PRAGMA table_info(employees)")
+    emp_columns = [info[1] for info in cursor.fetchall()]
+
+    if "is_auto_punch" not in emp_columns:
+        print("Adding 'is_auto_punch' column to 'employees' table...")
+        try:
+            cursor.execute("ALTER TABLE employees ADD COLUMN is_auto_punch BOOLEAN DEFAULT 0")
+            conn.commit()
+            print("Column added.")
+        except Exception as e:
+            print(f"Error adding column: {e}")
+    else:
+        print("'is_auto_punch' column already exists in 'employees'.")
+
+    # ── New table for Predefined Notes ──
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='predefined_notes'")
+    if not cursor.fetchone():
+        print("Creating 'predefined_notes' table...")
+        try:
+            cursor.execute("""
+                CREATE TABLE predefined_notes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    color_hex TEXT DEFAULT '#ffffff'
+                )
+            """)
+            conn.commit()
+            print("Table 'predefined_notes' created.")
+        except Exception as e:
+            print(f"Error creating table: {e}")
+    else:
+        print("Table 'predefined_notes' already exists.")
 
     conn.close()
     print("Migration complete.")

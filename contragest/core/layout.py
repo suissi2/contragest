@@ -1,4 +1,4 @@
-from ttkbootstrap.constants import *
+﻿from ttkbootstrap.constants import *
 from contragest.core.i18n import get_lang_manager
 
 def is_rtl():

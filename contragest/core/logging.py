@@ -1,6 +1,23 @@
 import logging
 import os
+import errno
 from logging.handlers import RotatingFileHandler
+
+class _SafeRotatingFileHandler(RotatingFileHandler):
+    """RotatingFileHandler that gracefully skips rotation if file is locked by another process."""
+
+    def doRollover(self):
+        try:
+            super().doRollover()
+        except PermissionError:
+            # Another process has the log file locked (common on Windows).
+            # Skip rotation and continue writing to the current file.
+            pass
+        except OSError as exc:
+            if exc.errno == errno.EACCES:
+                pass
+            else:
+                raise
 
 def setup_logger(name="contragest"):
     """
@@ -9,8 +26,11 @@ def setup_logger(name="contragest"):
     """
     # Define log directory and file
     # contragest/core/logging.py -> core -> contragest -> ProjectRoot
-    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    log_dir = os.path.join(base_dir, "logs")
+    # CONTRAGEST_BASE_DIR lets the Windows service pin a stable location when
+    # the app is frozen (PyInstaller) and __file__ resolves to _MEIPASS/_internal.
+    base_dir = os.environ.get("CONTRAGEST_BASE_DIR") or os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    log_dir = os.environ.get("CONTRAGEST_LOG_DIR") or os.path.join(base_dir, "logs")
     log_file = os.path.join(log_dir, "contragest.log")
 
     # Create logs directory if it doesn't exist
@@ -25,7 +45,7 @@ def setup_logger(name="contragest"):
     if not logger.handlers:
         # File Handler (Rotating)
         # Max size 5MB, keep 5 backup files
-        file_handler = RotatingFileHandler(log_file, maxBytes=5*1024*1024, backupCount=5, encoding='utf-8')
+        file_handler = _SafeRotatingFileHandler(log_file, maxBytes=5*1024*1024, backupCount=5, encoding='utf-8')
         file_handler.setLevel(logging.INFO)
 
         # Formatter

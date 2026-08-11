@@ -1,8 +1,9 @@
-import ttkbootstrap as ttk
+﻿import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from contragest.features.auth.service import AuthService
 from contragest.lib.auth_core.ui.management import UserManagementPanel
 from contragest.core.gui_utils import center_window
+from contragest.core.status_bar import StatusLabel
 
 class UserManagementWindow(ttk.Toplevel):
     def __init__(self, parent, current_user):
@@ -19,6 +20,11 @@ class UserManagementWindow(ttk.Toplevel):
         center_window(self)
 
     def setup_ui(self):
+        # Add Persistent Status Bar (Bottom) - Reserve before any other packing
+        self.status_bar = StatusLabel(self)
+        self.status_bar.pack(side=BOTTOM, fill=X)
+        self.status_bar.set_status("Managing Users")
+
         # Header
         header = ttk.Frame(self, bootstyle=SECONDARY, padding=10)
         header.pack(fill=X)

@@ -1,7 +1,10 @@
-import ttkbootstrap as ttk
+﻿import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from ttkbootstrap.dialogs import Messagebox
-from contragest.core.database import SessionLocal, CompanyProfile, CompanyEmailConfig, AppConfig
+from contragest.core.database import (
+    SessionLocal, CompanyProfile, CompanyEmailConfig, AppConfig,
+    CompanyCategory, LegalForm, Activity, GeoSector, Country
+)
 from contragest.core.i18n import tr
 from ttkbootstrap.widgets import DateEntry
 from tkinter import filedialog
@@ -9,42 +12,197 @@ from PIL import Image, ImageTk
 from datetime import datetime
 import os
 import shutil
+import smtplib
+import ssl
+from contragest.core.status_bar import StatusLabel
+from contragest.core.gui_utils import DesignTokens, apply_premium_style, center_window
+
+class MasterDataManagementWindow(ttk.Toplevel):
+    """Generic window to manage simple master data lists (Category, LegalForm, etc.)"""
+    def __init__(self, parent, model_class, title, callback=None):
+        super().__init__(parent)
+        self.title(f"Manage {title}")
+        self.geometry("500x600")
+        self.center_window()
+        self.model_class = model_class
+        self.callback = callback
+        self.session = SessionLocal()
+        
+        container = ttk.Frame(self, padding=12)
+        container.pack(fill=BOTH, expand=YES)
+        
+        ttk.Label(container, text=f"List of {title}", font=("Space Mono", 10, "bold")).pack(pady=(1, 6))
+        
+        # Grid
+        self.tree = ttk.Treeview(container, columns=("name"), show="headings", height=10)
+        self.tree.heading("name", text="Name")
+        self.tree.column("name", width=300)
+        self.tree.pack(fill=BOTH, expand=YES)
+        
+        # Form
+        form_frame = ttk.Frame(container, padding=6)
+        form_frame.pack(fill=X)
+        ttk.Label(form_frame, text="Name:").pack(side=LEFT, padx=3)
+        self.v_name = ttk.StringVar()
+        self.ent_name = ttk.Entry(form_frame, textvariable=self.v_name)
+        self.ent_name.pack(side=LEFT, fill=X, expand=YES, padx=3)
+        
+        # Actions
+        btn_frame = ttk.Frame(container, padding=6)
+        btn_frame.pack(fill=X)
+        
+        ttk.Button(btn_frame, text=" ➕ Add ", bootstyle="success", command=self.add_item).pack(side=LEFT, padx=3)
+        ttk.Button(btn_frame, text=" 📝 Edit ", bootstyle="info", command=self.edit_item).pack(side=LEFT, padx=3)
+        ttk.Button(btn_frame, text=" ➖ Delete ", bootstyle="danger", command=self.delete_item).pack(side=LEFT, padx=3)
+        
+        self.load_data()
+        self.tree.bind("<<TreeviewSelect>>", self.on_select)
+
+    def center_window(self):
+        center_window(self)
+
+    def load_data(self):
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        items = self.session.query(self.model_class).all()
+        for i in items:
+            self.tree.insert("", END, iid=i.id, values=(i.name,))
+
+    def on_select(self, event):
+        sel = self.tree.selection()
+        if sel:
+            self.v_name.set(self.tree.item(sel[0])['values'][0])
+
+    def add_item(self):
+        name = self.v_name.get().strip()
+        if not name: return
+        
+        # Check for duplicates first
+        existing = self.session.query(self.model_class).filter_by(name=name).first()
+        if existing:
+            Messagebox.show_warning(f"'{name}' already exists in the list.", "Duplicate Entry")
+            return
+
+        try:
+            new_item = self.model_class(name=name)
+            self.session.add(new_item)
+            self.session.commit()
+            self.load_data()
+            self.v_name.set("")
+            if self.callback: self.callback()
+        except Exception as e:
+            self.session.rollback()
+            Messagebox.show_error(f"Error: {e}", "Database Error")
+
+    def edit_item(self):
+        sel = self.tree.selection()
+        if not sel: return
+        item_id = sel[0]
+        name = self.v_name.get().strip()
+        if not name: return
+        try:
+            # Check for duplicates if name changed
+            existing = self.session.query(self.model_class).filter(self.model_class.name == name, self.model_class.id != item_id).first()
+            if existing:
+                Messagebox.show_warning(f"'{name}' already exists.", "Duplicate Entry")
+                return
+
+            item = self.session.query(self.model_class).get(item_id)
+            if item:
+                item.name = name
+                self.session.commit()
+                self.load_data()
+                if self.callback: self.callback()
+        except Exception as e:
+            self.session.rollback()
+            Messagebox.show_error(f"Error: {e}", "Database Error")
+
+    def delete_item(self):
+        sel = self.tree.selection()
+        if not sel: return
+        item_id = sel[0]
+        if Messagebox.yesno("Delete this item?", "Confirm"):
+            try:
+                item = self.session.query(self.model_class).get(item_id)
+                if item:
+                    self.session.delete(item)
+                    self.session.commit()
+                    self.load_data()
+                    self.v_name.set("")
+                    if self.callback: self.callback()
+            except Exception as e:
+                self.session.rollback()
+                Messagebox.show_error(f"Error: {e}", "Database Error")
 
 class CompanyManagerWindow(ttk.Toplevel):
     def __init__(self, parent):
         super().__init__(parent)
         self.parent_window = parent  # Explicit reference to MainWindow
-        self.title("Saisie et M.à.j Société")
-        self.geometry("1150x850")
+        self.title("🏢  Saisie et M.à.j Société - Premium Edition")
+        self.geometry("1400x900")
         self.center_window()
         self.resizable(True, True)
+        self.configure(background="#E7E5E4") # Deep AI Violet
         
         self.session = SessionLocal()
+        self.current_company_id = None
+        self.tabs_dict = {}
+
+        # Design System Constants for Nebula Midnight
+        self.COLORS = {
+            "BG_MAIN": DesignTokens.BG_APP,
+            "BG_CARD": DesignTokens.SURFACE,
+            "BG_HOVER": DesignTokens.SECONDARY,
+            "PRIMARY": DesignTokens.PRIMARY,
+            "SUCCESS": DesignTokens.SUCCESS,
+            "TEXT_MAIN": DesignTokens.TEXT,
+            "TEXT_MUTED": DesignTokens.TEXT_MUTED
+        }
+
+        # Styles
+        self._apply_styles()
         
         # Variables
         self.init_variables()
         
-        self.main_container = ttk.Frame(self, padding=2, bootstyle="secondary")
-        self.main_container.pack(fill=BOTH, expand=YES)
+        # Add Persistent Status Bar (Bottom) - Reserve before main_container
+        user = getattr(parent, 'current_user', None)
+        self.status_bar = StatusLabel(self)
+        self.status_bar.pack(side=BOTTOM, fill=X)
+        self.status_bar.set_status("Managing Company Profile")
+
+        # Build UI layout
+        # 1. Top Section: Header & Stats Summary
+        self.build_header()
         
-        self.tabs_dict = {}
-        self.current_company_id = None
+        # 2. Middle Section: Searchable Grid (Company List)
+        self.build_top_grid()
         
-        # Build layout (from bottom up to pin the bottom area)
-        self.build_bottom_tabs_container()  # Bottom-most
-        self.build_middle_navigation()       # Above forms
-        self.build_bottom_action_bar()      # Immediately below Treeview
-        self.build_top_grid()               # Top, expandable
+        # 3. Bottom Section: Tabbed Form Cards
+        self.build_tabbed_form_area()
+        
+        # 4. Bottom Action Bar: Global CRUD actions
+        self.build_bottom_action_bar()
         
         self.load_grid_data()
+        self._load_logo()
+        
+    def _load_logo(self):
+        """Loads company logo from database."""
+        session = SessionLocal()
+        try:
+            config = session.query(AppConfig).first()
+            if config and config.company_logo_path and os.path.exists(config.company_logo_path):
+                img = Image.open(config.company_logo_path)
+                img.thumbnail((50, 50))
+                self.logo_img = ImageTk.PhotoImage(img)
+                if hasattr(self, 'logo_lbl'):
+                    self.logo_lbl.config(image=self.logo_img)
+        except: pass
+        finally: session.close()
         
     def center_window(self):
-        self.update_idletasks()
-        width = self.winfo_width()
-        height = self.winfo_height()
-        x = (self.winfo_screenwidth() // 2) - (width // 2)
-        y = (self.winfo_screenheight() // 2) - (height // 2)
-        self.geometry(f'{width}x{height}+{x}+{y}')
+        center_window(self)
         
     def init_variables(self):
         # General
@@ -104,9 +262,81 @@ class CompanyManagerWindow(ttk.Toplevel):
         # Stamp
         self.v_stamp_path = ttk.StringVar()
 
+    def _apply_styles(self):
+        s = ttk.Style()
+        apply_premium_style(s)
+        c = self.COLORS
+        
+        s.configure("TFrame", background=c["BG_MAIN"])
+        s.configure("Company.TFrame", background=c["BG_MAIN"])
+        s.configure("Card.TFrame", background=c["BG_CARD"], relief="flat")
+        s.configure("Header.TFrame", background=c["BG_MAIN"])
+        
+        # Typography
+        s.configure("Header.TLabel", font=("JetBrains Mono", 14, "bold"), foreground=c["TEXT_MAIN"], background=c["BG_MAIN"])
+        s.configure("SubHeader.TLabel", font=("Fira Sans", 9), foreground=c["TEXT_MUTED"], background=c["BG_MAIN"])
+        s.configure("FormLabel.TLabel", font=("Fira Sans", 9), foreground=c["TEXT_MUTED"], background=c["BG_CARD"])
+        s.configure("CardTitle.TLabel", font=("Fira Sans", 10, "bold"), foreground=c["PRIMARY"], background=c["BG_CARD"])
+        
+        # Premium Treeview
+        s.configure("Treeview", 
+                    background=c["BG_MAIN"], 
+                    foreground=c["TEXT_MAIN"], 
+                    fieldbackground=c["BG_MAIN"], 
+                    rowheight=28,
+                    font=("Fira Sans", 9),
+                    borderwidth=0)
+        s.configure("Treeview.Heading", 
+                    background=c["BG_CARD"], 
+                    foreground=c["TEXT_MAIN"], 
+                    font=("Fira Sans", 9, "bold"),
+                    relief="flat")
+        s.map("Treeview", 
+              background=[("selected", c["BG_HOVER"])], 
+              foreground=[("selected", c["PRIMARY"])])
+
+        # Modern Custom Tab Button Style
+        s.configure("Tab.TButton", 
+                    font=("Fira Sans", 9, "bold"), 
+                    padding=(9, 4),
+                    background=c["BG_MAIN"],
+                    foreground=c["TEXT_MUTED"])
+        s.map("Tab.TButton",
+              foreground=[("active", c["TEXT_MAIN"]), ("selected", c["PRIMARY"])],
+              background=[("active", c["BG_HOVER"])])
+              
+        # Primary Action Button
+        s.configure("Action.TButton", font=("Fira Sans", 9, "bold"), padding=(12, 6))
+
+    def build_header(self):
+        header = ttk.Frame(self, style="Header.TFrame", padding=(12, 9))
+        header.pack(fill=X)
+        
+        title_frame = ttk.Frame(header, style="Header.TFrame")
+        title_frame.pack(side=LEFT)
+        
+        self.logo_lbl = ttk.Label(title_frame, style="Header.TLabel")
+        self.logo_lbl.pack(side=LEFT, padx=(1, 9))
+        
+        text_f = ttk.Frame(title_frame, style="Header.TFrame")
+        text_f.pack(side=LEFT)
+        
+        ttk.Label(text_f, text="COMPANY PROFILE", style="Header.TLabel").pack(anchor=W)
+        ttk.Label(title_frame, text="Modern Master Data Governance & Identity Management", style="SubHeader.TLabel").pack(anchor=W)
+        
+        # Quick stats/info on the right
+        stats_frame = ttk.Frame(header, style="Header.TFrame")
+        stats_frame.pack(side=RIGHT)
+        self.lbl_count = ttk.Label(stats_frame, text="0 COMPANIES LOADED", font=("JetBrains Mono", 9), 
+                                   foreground=self.COLORS["SUCCESS"], background=self.COLORS["BG_MAIN"])
+        self.lbl_count.pack(side=RIGHT, padx=12)
+
     def build_top_grid(self):
-        grid_frame = ttk.Frame(self.main_container)
-        grid_frame.pack(fill=BOTH, expand=YES, pady=(0, 2))
+        grid_container = ttk.Frame(self, padding=(6, 1))
+        grid_container.pack(fill=BOTH, expand=YES)
+        
+        grid_inner = ttk.Frame(grid_container, bootstyle="secondary", padding=1)
+        grid_inner.pack(fill=BOTH, expand=YES)
         
         columns = (
             "code", "raison_sociale", "responsable", "contacts", "site_web", 
@@ -114,336 +344,401 @@ class CompanyManagerWindow(ttk.Toplevel):
             "telex", "bebe_gratuit", "utilisation_fi", "forme_juridique", 
             "code_tva", "categories", "pays", "lblcodepays", "secteur_geo", "devise"
         )
-        self.tree = ttk.Treeview(grid_frame, columns=columns, show="headings", selectmode="browse")
+        self.tree = ttk.Treeview(grid_inner, columns=columns, show="headings", selectmode="browse")
         
-        vsb = ttk.Scrollbar(grid_frame, orient=VERTICAL, command=self.tree.yview)
-        hsb = ttk.Scrollbar(grid_frame, orient=HORIZONTAL, command=self.tree.xview)
+        vsb = ttk.Scrollbar(grid_inner, orient=VERTICAL, command=self.tree.yview)
+        hsb = ttk.Scrollbar(grid_inner, orient=HORIZONTAL, command=self.tree.xview)
         self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
         
-        self.tree.grid(column=0, row=0, sticky='nsew')
-        vsb.grid(column=1, row=0, sticky='ns')
-        hsb.grid(column=0, row=1, sticky='ew')
+        self.tree.pack(fill=BOTH, expand=YES)
         
-        grid_frame.grid_columnconfigure(0, weight=1)
-        grid_frame.grid_rowconfigure(0, weight=1)
+        # Headings (Custom Widths)
+        col_configs = {
+            "code": (80, "Code"),
+            "raison_sociale": (220, "Raison Sociale"),
+            "responsable": (150, "Responsable"),
+            "ville": (120, "Ville"),
+            "telephone": (120, "Téléphone"),
+            "email": (180, "Email"),
+            "categories": (120, "Catégories"),
+            "secteur_geo": (150, "Secteur")
+        }
         
-        headings = [
-            "Code", "Raison Sociale", "Responsable", "Contact(s)", "Site Web",
-            "Email", "Adresse", "Code Postal", "Ville", "Téléphone", "Fax",
-            "Téléx", "Bébé Gratuit", "Utilisation FI", "Forme Juridique",
-            "Code TVA", "Catégories", "Pays", "lblCodePays", "Secteur Géographique", "Devise"
-        ]
-        
-        for col, head in zip(columns, headings):
-            self.tree.heading(col, text=head)
-            self.tree.column(col, width=100, minwidth=80)
+        for col in columns:
+            name = col_configs.get(col, (100, col.replace("_", " ").title()))[1]
+            width = col_configs.get(col, (100, ""))[0]
+            self.tree.heading(col, text=name.upper())
+            self.tree.column(col, width=width, anchor=W)
             
         self.tree.bind("<<TreeviewSelect>>", self.on_grid_select)
+        
+        # Hover effect on Treeview
+        self.tree.bind("<Motion>", self._on_tree_hover)
 
-    def build_middle_navigation(self):
-        nav_frame = ttk.Frame(self.main_container, bootstyle="secondary")
-        nav_frame.pack(fill=X, side=BOTTOM, pady=2)
+    def _on_tree_hover(self, event):
+        item = self.tree.identify_row(event.y)
+        if hasattr(self, '_last_hovered_item') and self._last_hovered_item != item:
+             # Tkinter Treeview doesn't have individual row hover tags by default easily
+             # but we can simulate it or just use selection highlight. 
+             # For now, we rely on standard selection visual.
+             pass
+        self._last_hovered_item = item
+
+    def build_tabbed_form_area(self):
+        # We create a container with a navigation sidebar and a content card
+        self.form_area = ttk.Frame(self, padding=(6, 3))
+        self.form_area.pack(fill=X, expand=False)
         
-        left_actions = ttk.Frame(nav_frame)
-        left_actions.pack(side=LEFT, padx=5)
-        ttk.Button(left_actions, text="🔄", bootstyle="outline-primary", command=self.load_grid_data).pack(side=LEFT, padx=2)
+        # Horizontal Tab Navigation (Pills)
+        nav_container = ttk.Frame(self.form_area, padding=(1, 1, 1, 6))
+        nav_container.pack(fill=X)
         
-        tabs_frame = ttk.Frame(nav_frame)
-        tabs_frame.pack(side=LEFT, padx=5)
-        
+        self.tab_buttons = {}
         tabs = [
-            ("📝", "Général"), ("📱", "Contact(s)"), ("⚙️", "Option(s)"), 
-            ("👔", "Administratif"), ("📧", "Messagerie"), ("☁️", "Applications"), 
-            ("🖥️", "lblServeurs"), ("📜", "Stamp")
+            ("Général", "📋"), ("Contact(s)", "📞"), ("Option(s)", "⚙️"), 
+            ("Administratif", "⚖️"), ("Messagerie", "📧"), ("Cloud App", "☁️"), 
+            ("Serveurs", "🖥️"), ("Stamp", "🎨")
         ]
         
-        for icon, tab_name in tabs:
-            btn = ttk.Button(tabs_frame, text=f"{icon} {tab_name}", bootstyle="link", 
-                             command=lambda t=tab_name: self.show_tab(t))
-            btn.pack(side=LEFT, padx=2)
+        for name, icon in tabs:
+            btn = ttk.Button(nav_container, text=f"{icon}  {name.upper()}", style="Tab.TButton",
+                             command=lambda n=name: self.show_tab(n))
+            btn.pack(side=LEFT, padx=(1, 3))
+            self.tab_buttons[name] = btn
+            
+            # Hover animations
+            btn.bind("<Enter>", lambda e, b=btn: self._animate_tab_hover(b, True))
+            btn.bind("<Leave>", lambda e, b=btn: self._animate_tab_hover(b, False))
 
-    def build_bottom_tabs_container(self):
-        # We use a fixed height container for the forms area
-        self.bottom_container = ttk.Frame(self.main_container, bootstyle="light", height=350)
-        self.bottom_container.pack(fill=X, side=BOTTOM, expand=False)
-        self.bottom_container.pack_propagate(False) # Keep fixed height regardless of content
+        # Main Card Content
+        self.content_card = ttk.Frame(self.form_area, style="Card.TFrame", padding=15)
+        self.content_card.pack(fill=BOTH, expand=YES)
         
-        # Build individual tab frames
-        self.tabs_dict["Général"] = self.build_general_tab()
-        self.tabs_dict["Contact(s)"] = self.build_contact_tab()
-        self.tabs_dict["Option(s)"] = self.build_option_tab()
-        self.tabs_dict["Administratif"] = self.build_admin_tab()
-        self.tabs_dict["Messagerie"] = self.build_messagerie_tab()
-        self.tabs_dict["Applications"] = self.build_app_tab()
-        self.tabs_dict["lblServeurs"] = self.build_serveurs_tab()
-        self.tabs_dict["Stamp"] = self.build_stamp_tab()
+        self.tabs_dict = {
+            "Général": self.build_general_tab(),
+            "Contact(s)": self.build_contact_tab(),
+            "Option(s)": self.build_option_tab(),
+            "Administratif": self.build_admin_tab(),
+            "Messagerie": self.build_messagerie_tab(),
+            "Cloud App": self.build_app_tab(),
+            "Serveurs": self.build_serveurs_tab(),
+            "Stamp": self.build_stamp_tab(),
+        }
         
-        # Show default tab
         self.show_tab("Général")
 
+    def _animate_tab_hover(self, button, entering):
+        if entering:
+            button.configure(style="Tab.TButton") # Transition mapping handles it
+        else:
+            button.configure(style="Tab.TButton")
+
     def show_tab(self, tab_name):
-        for frame in self.tabs_dict.values():
+        for name, frame in self.tabs_dict.items():
             if frame:
                 frame.pack_forget()
+            btn = self.tab_buttons.get(name)
+            if btn:
+                # Highlight active button
+                if name == tab_name:
+                    btn.configure(bootstyle="primary")
+                else:
+                    btn.configure(bootstyle="link")
         
-        if tab_name in self.tabs_dict and self.tabs_dict[tab_name]:
+        if tab_name in self.tabs_dict:
             self.tabs_dict[tab_name].pack(fill=BOTH, expand=YES)
 
     def build_bottom_action_bar(self):
-        # The background should match the top navigation bar
-        action_bar = ttk.Frame(self.main_container, bootstyle="secondary")
-        action_bar.pack(fill=X, side=BOTTOM, pady=(0, 2))
+        action_bar = ttk.Frame(self, padding=(12, 6))
+        action_bar.pack(fill=X, side=BOTTOM)
         
-        container = ttk.Frame(action_bar, bootstyle="secondary")
-        container.pack(side=LEFT, fill=Y, padx=0, pady=0)
+        # Left Side: CRUD Toolbar
+        toolbar = ttk.Frame(action_bar)
+        toolbar.pack(side=LEFT)
         
-        # Style definition for flush square buttons
-        # In ttkbootstrap, we can use 'toolbutton' or specific width/padding
+        # Stylish Action Group
+        group = ttk.Frame(toolbar, bootstyle="secondary", padding=1)
+        group.pack(side=LEFT)
         
-        # Group 1: CRUD Actions (Green, Dark Gray, Red, Cyan)
-        crud_frame = ttk.Frame(container, bootstyle="secondary")
-        crud_frame.pack(side=LEFT, padx=(5, 10))
+        actions = [
+            (" ➕ ADD ", "success", self.cmd_add),
+            (" 📝 EDIT ", "info", self.cmd_edit),
+            (" ➖ DELETE ", "danger", self.cmd_delete),
+        ]
         
-        btn_add = ttk.Button(crud_frame, text=" ➕ ", bootstyle="success", width=3, command=self.cmd_add)
-        btn_add.pack(side=LEFT, padx=0, fill=Y)
+        for text, style, cmd in actions:
+            ttk.Button(group, text=text, bootstyle=f"{style}-toolbutton", padding=(9, 4), command=cmd).pack(side=LEFT)
+            
+        ttk.Button(toolbar, text=" 🔄 SYNC ", bootstyle="secondary-outline", padding=(9, 4), command=self.load_grid_data).pack(side=LEFT, padx=6)
         
-        btn_edit = ttk.Button(crud_frame, text=" 📝 ", bootstyle="secondary", width=3, command=self.cmd_edit)
-        btn_edit.pack(side=LEFT, padx=0, fill=Y)
+        # Right Side: Navigation & Save
+        right_panel = ttk.Frame(action_bar)
+        right_panel.pack(side=RIGHT)
         
-        btn_del = ttk.Button(crud_frame, text=" ➖ ", bootstyle="danger", width=3, command=self.cmd_delete)
-        btn_del.pack(side=LEFT, padx=0, fill=Y)
+        nav_group = ttk.Frame(right_panel, bootstyle="secondary", padding=1)
+        nav_group.pack(side=LEFT, padx=12)
         
-        btn_ref = ttk.Button(crud_frame, text=" 🔄 ", bootstyle="info", width=3, command=self.load_grid_data)
-        btn_ref.pack(side=LEFT, padx=0, fill=Y)
-        
-        # Separator (A small vertical line or just empty space)
-        ttk.Frame(container, bootstyle="secondary", width=10).pack(side=LEFT, fill=Y)
-        
-        # Group 2: Navigation (All Cyan)
-        nav_frame = ttk.Frame(container, bootstyle="secondary")
-        nav_frame.pack(side=LEFT, padx=0)
-        
-        btn_first = ttk.Button(nav_frame, text=" ⏪ ", bootstyle="info", width=3, command=self.nav_first)
-        btn_first.pack(side=LEFT, padx=0, fill=Y)
-        
-        btn_prev = ttk.Button(nav_frame, text=" ◀ ", bootstyle="info", width=3, command=self.nav_prev)
-        btn_prev.pack(side=LEFT, padx=0, fill=Y)
-        
-        btn_next = ttk.Button(nav_frame, text=" ▶ ", bootstyle="info", width=3, command=self.nav_next)
-        btn_next.pack(side=LEFT, padx=0, fill=Y)
-        
-        btn_last = ttk.Button(nav_frame, text=" ⏩ ", bootstyle="info", width=3, command=self.nav_last)
-        btn_last.pack(side=LEFT, padx=0, fill=Y)
-        
-        # Main form actions on Right side
-        right_actions = ttk.Frame(action_bar, bootstyle="secondary")
-        right_actions.pack(side=RIGHT, padx=5, pady=2)
-        ttk.Button(right_actions, text="💾 Enregistrer", bootstyle="success", command=self.save_company).pack(side=LEFT, padx=2)
-        ttk.Button(right_actions, text="❌ Fermer", bootstyle="secondary", command=self.destroy).pack(side=LEFT, padx=2)
+        navs = [("⏪", self.nav_first), ("◀", self.nav_prev), ("▶", self.nav_next), ("⏩", self.nav_last)]
+        for icon, cmd in navs:
+            ttk.Button(nav_group, text=f" {icon} ", bootstyle="secondary-toolbutton", command=cmd).pack(side=LEFT)
+            
+        ttk.Button(right_panel, text="💾 SAVE PROFILE", bootstyle="success", padding=(12, 6), command=self.save_company).pack(side=LEFT, padx=3)
+        ttk.Button(right_panel, text="❌ CLOSE", bootstyle="secondary-outline", padding=(12, 6), command=self.destroy).pack(side=LEFT)
 
-    def add_form_row(self, parent, label_text, variable, width=32):
-        row = parent.grid_size()[1]
-        ttk.Label(parent, text=label_text, width=15, anchor=W, bootstyle="light").grid(row=row, column=0, pady=2, sticky=W)
-        ttk.Entry(parent, textvariable=variable, width=width).grid(row=row, column=1, pady=2, sticky=W)
+    def add_form_row(self, parent, label_text, variable, width=40):
+        row_frame = ttk.Frame(parent, style="Card.TFrame", padding=(1, 3))
+        row_frame.pack(fill=X)
+        
+        ttk.Label(row_frame, text=label_text.upper(), style="FormLabel.TLabel", width=22).pack(side=LEFT)
+        ttk.Entry(row_frame, textvariable=variable, width=width).pack(side=LEFT, fill=X, expand=YES)
+
+    def _add_combo_with_manager(self, parent, label_text, variable, model_class, values):
+        row_frame = ttk.Frame(parent, style="Card.TFrame", padding=(1, 3))
+        row_frame.pack(fill=X)
+        
+        ttk.Label(row_frame, text=label_text.upper(), style="FormLabel.TLabel", width=22).pack(side=LEFT)
+        
+        container = ttk.Frame(row_frame, style="Card.TFrame")
+        container.pack(side=LEFT, fill=X, expand=YES)
+        
+        # Normalize key for attribute reference
+        key = label_text.replace(" ", "_").replace("(", "").replace(")", "").replace("é", "e").lower()
+        
+        cb = ttk.Combobox(container, textvariable=variable, width=32, values=values)
+        cb.pack(side=LEFT, fill=X, expand=YES, padx=(1, 3))
+        setattr(self, f"cb_{key}", cb)
+        
+        btn = ttk.Button(container, text="➕", bootstyle="info-outline", width=3,
+                         command=lambda: MasterDataManagementWindow(self, model_class, label_text, lambda: self._refresh_combo(key, model_class)))
+        btn.pack(side=LEFT)
+
+    def _refresh_combo(self, key, model_class):
+        try:
+            # Create a fresh session to get latest data
+            session = SessionLocal()
+            items = [i.name for i in session.query(model_class).all()]
+            session.close()
+            
+            cb = getattr(self, f"cb_{key}", None)
+            if cb:
+                cb.config(values=items)
+        except Exception as e:
+            print(f"Error refreshing combo {key}: {e}")
 
     # --- TAB BUILDERS --- #
     def build_general_tab(self):
-        frame = ttk.Frame(self.bottom_container, padding=10, bootstyle="light")
+        frame = ttk.Frame(self.content_card, style="Card.TFrame")
         
-        left_col = ttk.Frame(frame, bootstyle="light")
-        left_col.pack(side=LEFT, fill=Y, padx=(10, 50))
-        self.add_form_row(left_col, "Code", self.v_code)
-        self.add_form_row(left_col, "Raison Sociale", self.v_raison_sociale)
+        left_col = ttk.Frame(frame, style="Card.TFrame")
+        left_col.pack(side=LEFT, fill=BOTH, expand=YES, padx=(1, 12))
         
-        ttk.Label(left_col, text="Catégories", width=15, anchor=W, bootstyle="light").grid(column=0, row=2, pady=2, sticky=W)
-        ttk.Combobox(left_col, textvariable=self.v_categories, width=30).grid(row=2, column=1, pady=2, sticky=W)
-        ttk.Label(left_col, text="Forme Juridique", width=15, anchor=W, bootstyle="light").grid(column=0, row=3, pady=2, sticky=W)
-        ttk.Combobox(left_col, textvariable=self.v_forme_juridique, width=30).grid(row=3, column=1, pady=2, sticky=W)
-        self.add_form_row(left_col, "Activité", self.v_activite)
+        ttk.Label(left_col, text="PRIMARY IDENTITY", style="CardTitle.TLabel").pack(anchor=W, pady=(1, 9))
+        
+        self.add_form_row(left_col, "Unique Entity Code", self.v_code)
+        self.add_form_row(left_col, "Legal Business Name", self.v_raison_sociale)
+        
+        # Categorization Group
+        cat_frame = ttk.Frame(left_col, style="Card.TFrame", padding=(1, 6))
+        cat_frame.pack(fill=X)
+        
+        self._add_combo_with_manager(cat_frame, "Entity Category", self.v_categories, CompanyCategory, [])
+        self._add_combo_with_manager(cat_frame, "Legal Policy Form", self.v_forme_juridique, LegalForm, [])
+        self._add_combo_with_manager(cat_frame, "Primary Activity", self.v_activite, Activity, [])
 
-        right_col = ttk.Frame(frame, bootstyle="light")
-        right_col.pack(side=RIGHT, fill=Y, padx=(50, 10))
-        ttk.Label(right_col, text="Secteur Géographique", width=20, anchor=W, bootstyle="light").grid(column=0, row=0, pady=2, sticky=W)
-        ttk.Combobox(right_col, textvariable=self.v_secteur_geo, width=30).grid(row=0, column=1, pady=2, sticky=W)
+        right_col = ttk.Frame(frame, style="Card.TFrame")
+        right_col.pack(side=LEFT, fill=BOTH, expand=YES)
         
-        ttk.Label(right_col, text="Date de Création", width=20, anchor=W, bootstyle="light").grid(column=0, row=1, pady=2, sticky=W)
-        self.date_picker = DateEntry(right_col, width=28)
-        self.date_picker.grid(row=1, column=1, pady=2, sticky=W)
+        ttk.Label(right_col, text="GOVERNANCE & CREATION", style="CardTitle.TLabel").pack(anchor=W, pady=(1, 9))
         
-        self.add_form_row(right_col, "Représentant Juridique", self.v_representant)
-        self.add_form_row(right_col, "Qualité", self.v_qualite)
+        self._add_combo_with_manager(right_col, "Geographical Sector", self.v_secteur_geo, GeoSector, [])
+        
+        row_dt = ttk.Frame(right_col, style="Card.TFrame", padding=(1, 3))
+        row_dt.pack(fill=X)
+        ttk.Label(row_dt, text="CREATION DATE".upper(), style="FormLabel.TLabel", width=22).pack(side=LEFT)
+        self.date_picker = DateEntry(row_dt, width=35)
+        self.date_picker.pack(side=LEFT, fill=X, expand=YES)
+        
+        self.add_form_row(right_col, "Legal Representative", self.v_representant)
+        self.add_form_row(right_col, "Official Quality", self.v_qualite)
+        
+        # Initial refresh of combos
+        self._refresh_all_combos()
         return frame
 
-    def build_contact_tab(self):
-        frame = ttk.Frame(self.bottom_container, padding=10, bootstyle="light")
-        
-        left_col = ttk.Frame(frame, bootstyle="light")
-        left_col.pack(side=LEFT, fill=Y, padx=(10, 50))
-        
-        # Override add_form_row specifically for Adresse which needs to be larger
-        ttk.Label(left_col, text="Adresse", width=12, anchor=NW, bootstyle="light").grid(column=0, row=0, pady=2, sticky=NW)
-        ttk.Entry(left_col, textvariable=self.v_adresse, width=50).grid(row=0, column=1, pady=2, sticky=W)
-        
-        ttk.Label(left_col, text="Ville", width=12, anchor=W, bootstyle="light").grid(column=0, row=1, pady=2, sticky=W)
-        ttk.Entry(left_col, textvariable=self.v_ville, width=40).grid(row=1, column=1, pady=2, sticky=W)
-        
-        ttk.Label(left_col, text="Code Postal", width=12, anchor=W, bootstyle="light").grid(column=0, row=2, pady=2, sticky=W)
-        ttk.Spinbox(left_col, textvariable=self.v_code_postal, width=10, from_=0, to=99999).grid(row=2, column=1, pady=2, sticky=W)
-        
-        ttk.Label(left_col, text="Pays", width=12, anchor=W, bootstyle="light").grid(column=0, row=3, pady=2, sticky=W)
-        ttk.Combobox(left_col, textvariable=self.v_pays, width=30).grid(row=3, column=1, pady=2, sticky=W)
+    def _refresh_all_combos(self):
+        # Batch refresh to avoid multiple session openings
+        items_map = {
+            "entity_category": CompanyCategory,
+            "legal_policy_form": LegalForm,
+            "primary_activity": Activity,
+            "geographical_sector": GeoSector,
+            "pays": Country
+        }
+        for key, model in items_map.items():
+            self._refresh_combo(key, model)
 
-        right_col = ttk.Frame(frame, bootstyle="light")
-        right_col.pack(side=RIGHT, fill=Y, padx=(50, 10))
+    def build_contact_tab(self):
+        frame = ttk.Frame(self.content_card, style="Card.TFrame")
         
-        ttk.Label(right_col, text="Téléphone", width=15, anchor=W, bootstyle="light").grid(column=0, row=0, pady=2, sticky=W)
-        ttk.Entry(right_col, textvariable=self.v_telephone, width=30).grid(row=0, column=1, pady=2, sticky=W)
-        ttk.Label(right_col, text="Fax", width=15, anchor=W, bootstyle="light").grid(column=0, row=1, pady=2, sticky=W)
-        ttk.Entry(right_col, textvariable=self.v_fax, width=30).grid(row=1, column=1, pady=2, sticky=W)
-        ttk.Label(right_col, text="Téléx", width=15, anchor=W, bootstyle="light").grid(column=0, row=2, pady=2, sticky=W)
-        ttk.Entry(right_col, textvariable=self.v_telex, width=30).grid(row=2, column=1, pady=2, sticky=W)
-        ttk.Label(right_col, text="Site Web", width=15, anchor=W, bootstyle="light").grid(column=0, row=3, pady=2, sticky=W)
-        ttk.Entry(right_col, textvariable=self.v_site_web, width=30).grid(row=3, column=1, pady=2, sticky=W)
+        left_col = ttk.Frame(frame, style="Card.TFrame")
+        left_col.pack(side=LEFT, fill=BOTH, expand=YES, padx=(1, 12))
+        ttk.Label(left_col, text="LOCATION & ADDRESS", style="CardTitle.TLabel").pack(anchor=W, pady=(1, 9))
+        
+        self.add_form_row(left_col, "Physical Address", self.v_adresse)
+        self.add_form_row(left_col, "City / Urban Area", self.v_ville)
+        
+        row_cp = ttk.Frame(left_col, style="Card.TFrame", padding=(1, 3))
+        row_cp.pack(fill=X)
+        ttk.Label(row_cp, text="POSTAL CODE", style="FormLabel.TLabel", width=22).pack(side=LEFT)
+        ttk.Spinbox(row_cp, textvariable=self.v_code_postal, width=15, from_=0, to=99999).pack(side=LEFT)
+        
+        self._add_combo_with_manager(left_col, "Country / Region", self.v_pays, Country, [])
+
+        right_col = ttk.Frame(frame, style="Card.TFrame")
+        right_col.pack(side=LEFT, fill=BOTH, expand=YES)
+        ttk.Label(right_col, text="CONTACT CHANNELS", style="CardTitle.TLabel").pack(anchor=W, pady=(1, 9))
+        
+        self.add_form_row(right_col, "Phone Number", self.v_telephone)
+        self.add_form_row(right_col, "Fax Line", self.v_fax)
+        self.add_form_row(right_col, "Telex ID", self.v_telex)
+        self.add_form_row(right_col, "Official Website", self.v_site_web)
 
         return frame
 
     def build_option_tab(self):
-        frame = ttk.Frame(self.bottom_container, padding=10, bootstyle="light")
+        frame = ttk.Frame(self.content_card, style="Card.TFrame")
         
-        # Left Panel Booleans
-        left_col = ttk.Frame(frame, bootstyle="light")
-        left_col.pack(side=LEFT, fill=Y, padx=(5, 20))
+        left_col = ttk.Frame(frame, style="Card.TFrame")
+        left_col.pack(side=LEFT, fill=BOTH, expand=YES, padx=(1, 12))
+        ttk.Label(left_col, text="BILLING & REGULATORY", style="CardTitle.TLabel").pack(anchor=W, pady=(1, 9))
         
-        ttk.Checkbutton(left_col, text="Utilisation FDCST", variable=self.v_utilisation_fdcst, bootstyle="round-toggle,light").pack(anchor=W, pady=2)
-        ttk.Checkbutton(left_col, text="Facturation Coffre /Jour", variable=self.v_facturation_coffre, bootstyle="round-toggle,light").pack(anchor=W, pady=2)
-        ttk.Checkbutton(left_col, text="Contrôle Nom PAX", variable=self.v_controle_nom_pax, bootstyle="round-toggle,light").pack(anchor=W, pady=2)
+        ttk.Checkbutton(left_col, text="Utilisation FDCST", variable=self.v_utilisation_fdcst, bootstyle="round-toggle").pack(anchor=W, pady=3)
+        ttk.Checkbutton(left_col, text="Facturation Coffre /Jour", variable=self.v_facturation_coffre, bootstyle="round-toggle").pack(anchor=W, pady=3)
+        ttk.Checkbutton(left_col, text="Contrôle Nom PAX", variable=self.v_controle_nom_pax, bootstyle="round-toggle").pack(anchor=W, pady=3)
         
-        ttk.Label(left_col, text="Devise", bootstyle="light").pack(anchor=W, pady=(10,0))
-        ttk.Combobox(left_col, textvariable=self.v_devise, width=20, values=["Dinar Tunisien", "Euro", "USD"]).pack(anchor=W)
-        
-        ttk.Label(left_col, text="Nationalité", bootstyle="light").pack(anchor=W, pady=(5,0))
-        ttk.Combobox(left_col, textvariable=self.v_nationalite, width=20, values=["Résidents Tunisiens"]).pack(anchor=W)
+        self.add_form_row(left_col, "Operational Currency", self.v_devise)
+        self.add_form_row(left_col, "Default Nationality", self.v_nationalite)
 
-        # Middle Groups
-        mid_col = ttk.Frame(frame, bootstyle="light")
-        mid_col.pack(side=LEFT, fill=Y, padx=20)
+        mid_col = ttk.Frame(frame, style="Card.TFrame")
+        mid_col.pack(side=LEFT, fill=BOTH, expand=YES, padx=6)
+        ttk.Label(mid_col, text="STAY TAX & FAMILY POLICY", style="CardTitle.TLabel").pack(anchor=W, pady=(1, 9))
         
-        # Taxe Sejour Group
-        taxe_frame = ttk.LabelFrame(mid_col, text="Taxe Séjour")
-        taxe_frame.pack(fill=X, pady=5)
-        ttk.Checkbutton(taxe_frame, text="Taxe Séjour", variable=self.v_taxe_sejour).grid(row=0, column=0, columnspan=2, pady=2, padx=5, sticky=W)
-        ttk.Label(taxe_frame, text="Transaction", bootstyle="light").grid(row=1, column=0, pady=2, padx=5)
-        ttk.Entry(taxe_frame, textvariable=self.v_transaction_taxe, width=25).grid(row=1, column=1, pady=2, padx=5)
+        taxe_frame = ttk.Frame(mid_col, style="Card.TFrame")
+        taxe_frame.pack(fill=X, pady=3)
+        ttk.Checkbutton(taxe_frame, text="Active Stay Tax", variable=self.v_taxe_sejour, bootstyle="success-square-toggle").pack(anchor=W)
+        self.add_form_row(mid_col, "Tax Transaction ID", self.v_transaction_taxe)
         
-        # Gestion Group Container
-        gestion_container = ttk.Frame(mid_col, bootstyle="light")
-        gestion_container.pack(fill=X, pady=5)
+        # Age-based Management group
+        age_frame = ttk.Frame(mid_col, style="Card.TFrame", padding=(1, 6))
+        age_frame.pack(fill=X)
         
-        # Bebes
-        b_frame = ttk.LabelFrame(gestion_container, text="Gestion des bébés")
-        b_frame.pack(side=LEFT, padx=2)
-        ttk.Checkbutton(b_frame, text="Gratuit", variable=self.v_bebe_gratuit).pack(anchor=W, padx=5)
-        ttk.Checkbutton(b_frame, text="Gestion", variable=self.v_bebe_gestion).pack(anchor=W, padx=5)
-        hf = ttk.Frame(b_frame)
-        hf.pack(anchor=W, padx=5, pady=2)
-        ttk.Label(hf, text="Nbre.Maxim").pack(side=LEFT)
-        ttk.Spinbox(hf, textvariable=self.v_bebe_max, width=4, from_=0, to=10).pack(side=LEFT)
+        for label, bool_var, max_var in [("Infants (0-2)", self.v_bebe_gestion, self.v_bebe_max),
+                                        ("Children (2-12)", self.v_enfant_gestion, self.v_enfant_max),
+                                        ("Adults (12+)", None, self.v_adulte_max)]:
+            row = ttk.Frame(age_frame, style="Card.TFrame", padding=1)
+            row.pack(fill=X)
+            if bool_var:
+                 ttk.Checkbutton(row, text=label, variable=bool_var, width=15).pack(side=LEFT)
+            else:
+                 ttk.Label(row, text=label, style="FormLabel.TLabel", width=17).pack(side=LEFT)
+            
+            ttk.Label(row, text="Max Occupancy:", style="FormLabel.TLabel").pack(side=LEFT, padx=3)
+            ttk.Spinbox(row, textvariable=max_var, width=5, from_=0, to=99).pack(side=LEFT)
 
-        # Enfants
-        e_frame = ttk.LabelFrame(gestion_container, text="Gestion des enfants")
-        e_frame.pack(side=LEFT, padx=2, fill=Y)
-        ttk.Checkbutton(e_frame, text="Gestion", variable=self.v_enfant_gestion).pack(anchor=W, padx=5)
-        hf2 = ttk.Frame(e_frame)
-        hf2.pack(anchor=W, padx=5, pady=2)
-        ttk.Label(hf2, text="Nbre.Maxim").pack(side=LEFT)
-        ttk.Spinbox(hf2, textvariable=self.v_enfant_max, width=4, from_=0, to=10).pack(side=LEFT)
+        right_col = ttk.Frame(frame, style="Card.TFrame")
+        right_col.pack(side=RIGHT, fill=BOTH, expand=YES, padx=(12, 1))
+        ttk.Label(right_col, text="CORPORATE ASSETS", style="CardTitle.TLabel").pack(anchor=W, pady=(1, 9))
         
-        # Adultes
-        a_frame = ttk.LabelFrame(gestion_container, text="Gestion des adultes")
-        a_frame.pack(side=LEFT, padx=2, fill=Y)
-        hf3 = ttk.Frame(a_frame)
-        hf3.pack(anchor=W, padx=5, pady=2)
-        ttk.Label(hf3, text="Nbre.Maxim").pack(side=LEFT)
-        ttk.Spinbox(hf3, textvariable=self.v_adulte_max, width=4, from_=0, to=10).pack(side=LEFT)
-
-        # Right Logo
-        logo_frame = ttk.LabelFrame(frame, text="Logo")
-        logo_frame.pack(side=RIGHT, fill=Y, padx=10)
+        self.lbl_logo = ttk.Label(right_col, text="[ NO LOGO ]", font=("JetBrains Mono", 9), anchor=CENTER, padding=12)
+        self.lbl_logo.pack(fill=BOTH, expand=YES)
         
-        self.lbl_logo = ttk.Label(logo_frame, text="[No Logo Selected]", width=25, anchor=CENTER)
-        self.lbl_logo.pack(side=LEFT, padx=10, fill=BOTH, expand=YES)
-        
-        btn_frame = ttk.Frame(logo_frame)
-        btn_frame.pack(side=RIGHT, padx=5)
-        ttk.Button(btn_frame, text="📁", command=self.upload_logo).pack(pady=5)
-        ttk.Button(btn_frame, text="❌", bootstyle="danger", command=lambda: [self.v_logo_path.set(""), self.refresh_logo_display()]).pack(pady=5)
+        btn_box = ttk.Frame(right_col, style="Card.TFrame")
+        btn_box.pack(fill=X, pady=6)
+        ttk.Button(btn_box, text=" 📁 UPLOAD ", bootstyle="secondary-outline", command=self.upload_logo).pack(side=LEFT, expand=YES, padx=3)
+        ttk.Button(btn_box, text=" ❌ CLEAR ", bootstyle="danger-outline", command=lambda: [self.v_logo_path.set(""), self.refresh_logo_display()]).pack(side=LEFT, expand=YES, padx=3)
 
         return frame
 
     def build_admin_tab(self):
-        frame = ttk.Frame(self.bottom_container, padding=10, bootstyle="light")
-        col = ttk.Frame(frame, bootstyle="light")
-        col.pack(side=LEFT, fill=Y, padx=10)
+        frame = ttk.Frame(self.content_card, style="Card.TFrame")
+        ttk.Label(frame, text="ADMINISTRATIVE & FINANCIALS", style="CardTitle.TLabel").pack(anchor=W, pady=(1, 9))
         
-        self.add_form_row(col, "Code TVA", self.v_code_tva, width=40)
-        self.add_form_row(col, "Police Assurance", self.v_police_assurance, width=40)
-        self.add_form_row(col, "Code Sécurité Sociale", self.v_code_securite_sociale, width=40)
+        left_col = ttk.Frame(frame, style="Card.TFrame")
+        left_col.pack(side=LEFT, fill=BOTH, expand=YES)
         
-        row = 3
-        ttk.Label(col, text="Capital Social", width=15, anchor=W, bootstyle="light").grid(row=row, column=0, pady=2, sticky=W)
-        ttk.Spinbox(col, textvariable=self.v_capital_social, width=15, format="%.3f").grid(row=row, column=1, pady=2, sticky=W)
+        self.add_form_row(left_col, "VAT ID Code (TVA)", self.v_code_tva)
+        self.add_form_row(left_col, "Assurance Policy", self.v_police_assurance)
+        
+        right_col = ttk.Frame(frame, style="Card.TFrame")
+        right_col.pack(side=LEFT, fill=BOTH, expand=YES)
+        self.add_form_row(right_col, "Social Security ID", self.v_code_securite_sociale)
+        
+        row_cap = ttk.Frame(right_col, style="Card.TFrame", padding=(1, 3))
+        row_cap.pack(fill=X)
+        ttk.Label(row_cap, text="SOCIAL CAPITAL", style="FormLabel.TLabel", width=22).pack(side=LEFT)
+        ttk.Spinbox(row_cap, textvariable=self.v_capital_social, width=20, format="%.3f").pack(side=LEFT)
+        
         return frame
 
     def build_messagerie_tab(self):
-        frame = ttk.Frame(self.bottom_container, padding=2, bootstyle="light")
+        frame = ttk.Frame(self.content_card, style="Card.TFrame")
         
-        cols = ("type", "email", "login", "password", "smtp", "port", "ssl", "auth")
-        heads = ["Type", "Email", "lblEmailLogin", "Mot de Passe", "SMTP", "lblPORT", "SSL", "Authentifier"]
+        ttk.Label(frame, text="EMAIL CHANNEL CONFIGURATION", style="CardTitle.TLabel").pack(anchor=W, pady=(1, 9))
         
-        self.mail_tree = ttk.Treeview(frame, columns=cols, show="headings", height=6)
+        cols = ("id", "type", "email", "login", "password", "smtp", "port", "ssl", "auth")
+        heads = ["ID", "CHANNEL TYPE", "EMAIL ADDRESS", "USERNAME", "CREDENTIALS", "SMTP HOST", "PORT", "SECURE", "AUTH"]
+        
+        tree_container = ttk.Frame(frame, bootstyle="secondary", padding=1)
+        tree_container.pack(fill=BOTH, expand=YES)
+        
+        self.mail_tree = ttk.Treeview(tree_container, columns=cols, show="headings", height=8)
         for c, h in zip(cols, heads):
             self.mail_tree.heading(c, text=h)
-            self.mail_tree.column(c, width=120)
+            if c == "id":
+                self.mail_tree.column(c, width=0, stretch=NO)
+            else:
+                self.mail_tree.column(c, width=120, anchor=W)
 
         self.mail_tree.pack(fill=BOTH, expand=YES)
+        self.mail_tree.bind("<Double-1>", self.on_mail_double_click)
         return frame
 
     def build_app_tab(self):
-        frame = ttk.Frame(self.bottom_container, padding=10, bootstyle="light")
-        group = ttk.LabelFrame(frame, text="My Hotix Guest")
-        group.pack(anchor=NW, fill=X, padx=10, pady=5)
+        frame = ttk.Frame(self.content_card, style="Card.TFrame")
+        ttk.Label(frame, text="CORE APPLICATION SUITE", style="CardTitle.TLabel").pack(anchor=W, pady=(1, 9))
         
-        ttk.Label(group, text="Dossier", width=10).pack(side=LEFT, padx=5, pady=10)
-        ttk.Entry(group, textvariable=self.v_dossier_hotix, width=40).pack(side=LEFT, padx=5, pady=10)
-        ttk.Button(group, text="📁").pack(side=LEFT, padx=5, pady=10)
+        row = ttk.Frame(frame, style="Card.TFrame")
+        row.pack(fill=X)
+        ttk.Label(row, text="ERP ROOT DIRECTORY", style="FormLabel.TLabel", width=22).pack(side=LEFT)
+        ttk.Entry(row, textvariable=self.v_dossier_hotix, width=50).pack(side=LEFT, fill=X, expand=YES)
+        ttk.Button(row, text=" 📁 BROWSE ", bootstyle="secondary-outline").pack(side=LEFT, padx=6)
         return frame
 
     def build_serveurs_tab(self):
-        frame = ttk.Frame(self.bottom_container, padding=10, bootstyle="light")
-        group = ttk.LabelFrame(frame, text="lblFtpServer")
-        group.pack(anchor=NW, fill=X, padx=10, pady=5)
+        frame = ttk.Frame(self.content_card, style="Card.TFrame")
+        ttk.Label(frame, text="TELEMETRY & FTP CONNECTIVITY", style="CardTitle.TLabel").pack(anchor=W, pady=(1, 9))
         
-        inner = ttk.Frame(group)
-        inner.pack(anchor=NW, padx=10, pady=5)
-        self.add_form_row(inner, "URL", self.v_ftp_url, width=40)
-        self.add_form_row(inner, "Utilisateur", self.v_ftp_user, width=40)
-        self.add_form_row(inner, "Mot De Passe", self.v_ftp_pass, width=40)
+        left_col = ttk.Frame(frame, style="Card.TFrame")
+        left_col.pack(side=LEFT, fill=BOTH, expand=YES)
+        self.add_form_row(left_col, "Remote Server URL", self.v_ftp_url)
+        self.add_form_row(left_col, "Service Username", self.v_ftp_user)
+        
+        right_col = ttk.Frame(frame, style="Card.TFrame")
+        right_col.pack(side=LEFT, fill=BOTH, expand=YES)
+        self.add_form_row(right_col, "Encrypted Access Token", self.v_ftp_pass)
         return frame
 
     def build_stamp_tab(self):
-        frame = ttk.Frame(self.bottom_container, padding=10, bootstyle="light")
+        frame = ttk.Frame(self.content_card, style="Card.TFrame")
+        ttk.Label(frame, text="CORPORATE DIGITAL STAMP", style="CardTitle.TLabel").pack(anchor=W, pady=(1, 9))
         
-        # Right Stamp
-        stamp_frame = ttk.LabelFrame(frame, text="Stamp")
-        stamp_frame.pack(side=RIGHT, fill=Y, padx=10)
+        self.lbl_stamp = ttk.Label(frame, text="[ NO STAMP ]", font=("JetBrains Mono", 9), anchor=CENTER, padding=12)
+        self.lbl_stamp.pack(fill=BOTH, expand=YES)
         
-        self.lbl_stamp = ttk.Label(stamp_frame, text="[No Stamp Selected]", width=25, anchor=CENTER)
-        self.lbl_stamp.pack(side=LEFT, padx=10, fill=BOTH, expand=YES)
-        
-        btn_frame = ttk.Frame(stamp_frame)
-        btn_frame.pack(side=RIGHT, padx=5)
-        ttk.Button(btn_frame, text="📁", command=self.upload_stamp).pack(pady=5)
-        ttk.Button(btn_frame, text="❌", bootstyle="danger", command=lambda: [self.v_stamp_path.set(""), self.refresh_stamp_display()]).pack(pady=5)
+        btn_box = ttk.Frame(frame, style="Card.TFrame")
+        btn_box.pack(fill=X, pady=6)
+        ttk.Button(btn_box, text=" 📁 UPLOAD ", bootstyle="secondary-outline", command=self.upload_stamp).pack(side=LEFT, expand=YES, padx=3)
+        ttk.Button(btn_box, text=" ❌ CLEAR ", bootstyle="danger-outline", command=lambda: [self.v_stamp_path.set(""), self.refresh_stamp_display()]).pack(side=LEFT, expand=YES, padx=3)
 
         return frame
 
@@ -502,6 +797,9 @@ class CompanyManagerWindow(ttk.Toplevel):
                 p.secteur_geographique, p.devise
             )
             self.tree.insert("", END, values=values)
+            
+        count = len(profiles)
+        self.lbl_count.configure(text=f"{count} COMPANIES LOADED")
             
     def on_grid_select(self, event):
         selected = self.tree.selection()
@@ -599,8 +897,106 @@ class CompanyManagerWindow(ttk.Toplevel):
             configs = [dummy, dummy2]
             
         for c in configs:
-            v = (c.type, c.email, c.login, c.password, c.smtp, c.port, "☑" if c.ssl else "☐", "☑" if c.authentifier else "☐")
+            v = (c.id, c.type, c.email or "", c.login or "", c.password or "", c.smtp or "", c.port or 0, "☑" if c.ssl else "☐", "☑" if c.authentifier else "☐")
             self.mail_tree.insert("", END, values=v)
+
+    def on_mail_double_click(self, event):
+        item_id = self.mail_tree.identify_row(event.y)
+        if not item_id: return
+        
+        values = self.mail_tree.item(item_id, 'values')
+        # values: (id, type, email, login, password, smtp, port, ssl, auth)
+        
+        dlg = ttk.Toplevel(self)
+        dlg.title(f"Edit {values[1]}")
+        dlg.geometry("450x550")
+        dlg.transient(self)
+        dlg.grab_set()
+        center_window(dlg)
+        
+        content = ttk.Frame(dlg, padding=20)
+        content.pack(fill=BOTH, expand=YES)
+        
+        vars = {
+            "email": ttk.StringVar(value=values[2]),
+            "login": ttk.StringVar(value=values[3]),
+            "password": ttk.StringVar(value=values[4]),
+            "smtp": ttk.StringVar(value=values[5]),
+            "port": ttk.IntVar(value=int(values[6])),
+            "ssl": ttk.BooleanVar(value=(values[7] == "☑")),
+            "auth": ttk.BooleanVar(value=(values[8] == "☑"))
+        }
+        
+        def add_field(label, var):
+            row = ttk.Frame(content)
+            row.pack(fill=X, pady=6)
+            ttk.Label(row, text=label, width=15).pack(side=LEFT)
+            if isinstance(var, ttk.BooleanVar):
+                ttk.Checkbutton(row, variable=var, bootstyle="round-toggle").pack(side=LEFT)
+            else:
+                ttk.Entry(row, textvariable=var).pack(side=LEFT, fill=X, expand=YES)
+
+        add_field("Email Address", vars["email"])
+        add_field("Username", vars["login"])
+        add_field("Password", vars["password"])
+        add_field("SMTP Host", vars["smtp"])
+        add_field("Port", vars["port"])
+        add_field("Use SSL/TLS", vars["ssl"])
+        add_field("Require Auth", vars["auth"])
+        
+        def test_connection():
+            host = vars["smtp"].get().strip()
+            port = vars["port"].get()
+            user = vars["login"].get().strip()
+            pwd = vars["password"].get().strip()
+            use_ssl = vars["ssl"].get()
+            require_auth = vars["auth"].get()
+            
+            if not host:
+                Messagebox.show_warning("Veuillez saisir un hôte SMTP.", "Données manquantes", parent=dlg)
+                return
+                
+            try:
+                # Show a temporary "checking..." state could be nice but let's keep it simple first
+                if use_ssl:
+                    context = ssl.create_default_context()
+                    server = smtplib.SMTP_SSL(host, port, context=context, timeout=15)
+                else:
+                    server = smtplib.SMTP(host, port, timeout=15)
+                    try:
+                        # Try STARTTLS if port is typical for it or if server suggests it
+                        server.starttls()
+                    except:
+                        pass 
+                
+                if require_auth:
+                    server.login(user, pwd)
+                    
+                server.quit()
+                Messagebox.show_info("Connexion SMTP réussie !", "Succès", parent=dlg)
+            except Exception as e:
+                Messagebox.show_error(f"Échec de la connexion :\n{str(e)}", "Erreur de Vérification", parent=dlg)
+
+        def save_dlg():
+            try:
+                self.mail_tree.item(item_id, values=(
+                    values[0],
+                    values[1],
+                    vars["email"].get(),
+                    vars["login"].get(),
+                    vars["password"].get(),
+                    vars["smtp"].get(),
+                    vars["port"].get(),
+                    "☑" if vars["ssl"].get() else "☐",
+                    "☑" if vars["auth"].get() else "☐"
+                ))
+                dlg.destroy()
+            except Exception as e:
+                Messagebox.show_error(f"Error saving: {e}", "Error", parent=dlg)
+
+        ttk.Button(content, text=" ⚡ TEST CONNECTION ", bootstyle="warning", command=test_connection).pack(fill=X, pady=(20, 0))
+        ttk.Button(content, text=" APPLY CHANGES ", bootstyle="primary", command=save_dlg).pack(fill=X, pady=10)
+        ttk.Button(content, text=" CANCEL ", bootstyle="secondary-link", command=dlg.destroy).pack(fill=X)
 
     def cmd_add(self):
         self.tree.selection_remove(self.tree.selection())
@@ -841,6 +1237,20 @@ class CompanyManagerWindow(ttk.Toplevel):
         p.ftp_url = self.v_ftp_url.get()
         p.ftp_utilisateur = self.v_ftp_user.get()
         p.ftp_mot_de_passe = self.v_ftp_pass.get()
+        
+        # Emails (Sync from mail_tree)
+        for item in self.mail_tree.get_children():
+            v = self.mail_tree.item(item, 'values')
+            cfg_id = int(v[0])
+            cfg = self.session.get(CompanyEmailConfig, cfg_id)
+            if cfg:
+                cfg.email = v[2]
+                cfg.login = v[3]
+                cfg.password = v[4]
+                cfg.smtp = v[5]
+                cfg.port = int(v[6])
+                cfg.ssl = (v[7] == "☑")
+                cfg.authentifier = (v[8] == "☑")
         
         # Stamp
         p.stamp_path = self.v_stamp_path.get()

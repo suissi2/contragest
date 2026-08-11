@@ -10,7 +10,7 @@ class AppController:
     def __init__(self):
         self.root = ttk.Window(
             title="Contragest",
-            themename="superhero",
+            themename="cyborg",
             resizable=(True, True)
         )
         self.current_frame = None
@@ -50,22 +50,40 @@ class AppController:
         self.current_frame.setup_window()
 
     def run(self):
-        self.show_login()
+        from contragest.features.auth.service import AuthService
+        auto_user = AuthService().get_auto_login_user()
+        
+        if auto_user:
+            self.on_login_success(auto_user)
+        else:
+            self.show_login()
+            
         self.root.mainloop()
+
 
 def main():
     print("Initializing Contragest...")
     init_auth_db()
     init_db()
-    
+
     # Sync roles (Migration)
     from contragest.features.auth.service import AuthService
     AuthService().sync_legacy_roles()
-    
+
     print("Databases initialized.")
 
     controller = AppController()
+
+    # ── Error Reporting: global hook + toast notifications ────────────────────
+    from contragest.core.error_reporter import install_global_hook
+    from contragest.core.error_toast import ErrorToastManager
+
+    toast_mgr = ErrorToastManager(controller.root)
+    install_global_hook(root=controller.root, ui_callback=toast_mgr.show)
+    # ─────────────────────────────────────────────────────────────────────────
+
     controller.run()
+
 
 if __name__ == "__main__":
     main()

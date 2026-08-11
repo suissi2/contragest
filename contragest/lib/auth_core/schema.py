@@ -1,4 +1,4 @@
-from sqlalchemy import MetaData
+﻿from sqlalchemy import MetaData
 from .models import create_auth_tables
 
 def init_auth_schema(engine, base):

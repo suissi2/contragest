@@ -1,4 +1,4 @@
-class ContragestError(Exception):
+﻿class ContragestError(Exception):
     """Base class for all Contragest exceptions."""
     pass
 

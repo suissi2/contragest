@@ -1,4 +1,4 @@
-import json
+﻿import json
 import os
 from typing import Dict
 
@@ -48,8 +48,28 @@ class LanguageManager:
 # Global Instance helper
 _manager = LanguageManager()
 
-def tr(key: str) -> str:
-    return _manager.get(key)
+def tr(key: str, **kwargs) -> str:
+    translated = _manager.get(key)
+    # If translation is missing (manager returns key), don't uppercase it if it's a technical key
+    is_missing = (translated == key)
+    
+    if kwargs:
+        try:
+            # Format raw translation
+            res = translated.format(**kwargs)
+            return res.upper()
+        except (KeyError, ValueError):
+            try:
+                # Robust replacement
+                res = translated
+                for k, v in kwargs.items():
+                    import re
+                    res = re.sub(re.escape('{' + k + '}'), str(v), res, flags=re.IGNORECASE)
+                return res.upper()
+            except:
+                pass
+            
+    return translated.upper() if not is_missing else translated
     
 def get_lang_manager():
     return _manager

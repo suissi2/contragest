@@ -1,4 +1,4 @@
-import os
+﻿import os
 import shutil
 from datetime import datetime
 from contragest.core.database import DB_PATH

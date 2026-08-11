@@ -1,4 +1,4 @@
-import ttkbootstrap as ttk
+﻿import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from contragest.features.auth.service import AuthService
 from contragest.lib.auth_core.ui.login import AuthLoginWindow

@@ -1,0 +1,10 @@
+# Runtime dependencies for running Contragest as a Windows service.
+# Install into the deployment venv:  pip install -r requirements-service.txt
+#
+# pywin32  -> native Windows service integration (SCM, Event Log).
+#             pywin32>=312 ships cp314 wheels; on older interpreters pip
+#             selects the matching wheel automatically.
+pywin32>=308
+
+# Packaging: build the service exe with PyInstaller.
+pyinstaller>=6.11

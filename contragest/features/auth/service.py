@@ -1,4 +1,4 @@
-import secrets
+﻿import secrets
 import threading
 import hashlib
 from datetime import datetime, timedelta
@@ -101,20 +101,10 @@ class AuthService:
     # helper for specific non-core logic if any? 
     # The original _get_email_service was internal.
 
-    # We need to expose session for some legacy direct access if generic views used it?
-    # `self.session` was public in old service.
-    @property
-    def session(self):
-        return self._core_service._get_session() 
-        # CAUTION: Core service opens/closes sessions per method. 
-        # Accessing .session here creates a NEW session that might need closing.
-        # This is a risk for legacy code expecting a persistent session attribute.
-        # Let's check usages. 
-        # user_management.py used: user = self.auth_service.session.get(User, user_id)
-        # So we surely need a property that returns a session.
 
-# Re-implement legacy session access for compatibility
-# Ideally we refactor consumers, but for now we patch.
+    # Note: Accessing .session property was removed to prevent connection leaks.
+    # Legacy code needing direct DB access should instantiate SessionLocal()
+    # locally within a try...finally block.
     
     
 if __name__ == "__main__":

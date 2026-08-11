@@ -1,12 +1,37 @@
-import secrets
+﻿import secrets
 import hashlib
 import re
 from datetime import datetime, timedelta
 from typing import Optional, Tuple, Type, Any, Callable
 from sqlalchemy.orm import joinedload, selectinload
 from functools import wraps
+import json
+import os
 from .interfaces import DatabaseSessionProtocol, EmailServiceProtocol
 from contragest.core.email_templates import EmailTemplateManager
+
+LOCAL_AUTH_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), '.local_auth.json')
+
+def _get_local_auto_login() -> Optional[int]:
+    if os.path.exists(LOCAL_AUTH_FILE):
+        try:
+            with open(LOCAL_AUTH_FILE, 'r') as f:
+                data = json.load(f)
+                return data.get('user_id')
+        except Exception:
+            pass
+    return None
+
+def _set_local_auto_login(user_id: Optional[int]):
+    try:
+        if user_id is None:
+            if os.path.exists(LOCAL_AUTH_FILE):
+                os.remove(LOCAL_AUTH_FILE)
+        else:
+            with open(LOCAL_AUTH_FILE, 'w') as f:
+                json.dump({'user_id': user_id}, f)
+    except Exception as e:
+        print(f"Error saving local auth: {e}")
 
 class AuthService:
     def __init__(self, session_factory, user_model: Type[Any], audit_model: Type[Any], role_model: Type[Any], permission_model: Type[Any], email_service: Optional[EmailServiceProtocol] = None):
@@ -383,7 +408,7 @@ class AuthService:
 
     def _send_password_reset_email(self, email: str, username: str, otp: str):
         """Send password reset OTP email."""
-        subject = f"Password Reset Code — {username}"
+        subject = f"Password Reset Code - {username}"
         body = EmailTemplateManager.render('password_reset', {
             'username': username,
             'otp': otp
@@ -452,6 +477,46 @@ class AuthService:
             return True, f"Account {status_text}."
         finally:
              session.close()
+
+    def toggle_auto_login(self, target_id: int, admin_id: int) -> Tuple[bool, str]:
+        """Enable or disable auto-login for a user ON THIS MACHINE."""
+        session = self._get_session()
+        try:
+            user = session.query(self.User).get(target_id)
+            if not user:
+                return False, "User not found."
+            
+            current_local = _get_local_auto_login()
+            if current_local == target_id:
+                _set_local_auto_login(None)
+                status_text = "Disabled"
+            else:
+                _set_local_auto_login(target_id)
+                status_text = "Enabled"
+            
+            self.log_action(admin_id, "LOCAL_AUTO_LOGIN_CHANGE", f"{status_text} local auto-login for {user.username}", affected_entity="USER", entity_id=user.id)
+            return True, f"Auto-login {status_text.lower()} on this machine."
+        finally:
+             session.close()
+
+    def get_local_auto_login_id(self) -> Optional[int]:
+        return _get_local_auto_login()
+
+    def get_auto_login_user(self) -> Optional[Any]:
+        """Returns the user configured for local auto-login, if any."""
+        local_id = _get_local_auto_login()
+        if not local_id:
+            return None
+            
+        session = self._get_session()
+        try:
+            user = session.query(self.User).filter(self.User.id == local_id, self.User.is_active == True).first()
+            if user:
+                session.expunge(user)
+                return user
+            return None
+        finally:
+            session.close()
 
     def search_users(self, query: str):
         """Search users by username or email (case-insensitive)."""

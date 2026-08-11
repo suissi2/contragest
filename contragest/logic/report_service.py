@@ -1,4 +1,4 @@
-from datetime import datetime, date
+﻿from datetime import datetime, date
 from sqlalchemy.orm import Session
 from contragest.core.database import Contract, Employee, AppConfig
 from contragest.features.auth.service import AuthService, User

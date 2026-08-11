@@ -6,10 +6,17 @@ from contragest.logic.report_service import ReportService
 from contragest.core.database import SessionLocal, AppConfig
 import csv
 import os
+import pandas as pd
+import threading
 from tkinter import filedialog
 from ttkbootstrap.dialogs import Messagebox
 from datetime import datetime
 from fpdf import FPDF
+from contragest.core.pdf_utils import safe_pdf_str
+
+import logging
+logger = logging.getLogger(__name__)
+
 class ReportsView(ttk.Frame):
     def __init__(self, parent):
         super().__init__(parent)
@@ -329,77 +336,85 @@ class ReportsView(ttk.Frame):
         if not file_path:
             return
             
-        try:
-            col_headers = [c[1] for c in columns]
-            data_rows = [row.values for row in filtered_rows]
+        def run_export():
+            try:
+                col_headers = [c[1] for c in columns]
+                data_rows = [row.values for row in filtered_rows]
 
-            pdf = FPDF(orientation='L', unit='mm', format='A4')
-            pdf.add_page()
-            
-            # Company Logo Header
-            logo_path = self._get_company_logo_path()
-            if logo_path:
-                try:
-                    pdf.image(logo_path, x=10, y=8, h=18)
-                except Exception:
-                    pass  # Skip logo if image format unsupported
-            
-            # Title (offset right if logo exists)
-            title_x = 35 if logo_path else 10
-            pdf.set_xy(title_x, 10)
-            pdf.set_font("helvetica", "B", 16)
-            pdf.cell(0, 8, f"Contragest - {name} Report", align="C", new_x="LMARGIN", new_y="NEXT")
-            pdf.set_font("helvetica", "I", 10)
-            pdf.cell(0, 8, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", align="C", new_x="LMARGIN", new_y="NEXT")
-            pdf.ln(5)
-            
-            # Table logic: distribute column widths evenly for simplicity
-            epw = pdf.w - 2 * pdf.l_margin
-            col_width = epw / len(col_headers)
-            
-            # Header Row
-            pdf.set_font("helvetica", "B", 11)
-            pdf.set_fill_color(66, 139, 202) # Nice subtle blue header
-            pdf.set_text_color(255, 255, 255)
-            for header in col_headers:
-                pdf.cell(col_width, 10, str(header), border=1, align='C', fill=True)
-            pdf.ln()
-
-            # Data Rows
-            pdf.set_font("helvetica", "", 10)
-            pdf.set_text_color(0, 0, 0)
-            fill = False
-            for row in data_rows:
-                if pdf.get_y() > 180: # Margin threshold, add new page
-                     pdf.add_page()
-                     # Redraw headers
-                     pdf.set_font("helvetica", "B", 11)
-                     pdf.set_fill_color(66, 139, 202)
-                     pdf.set_text_color(255, 255, 255)
-                     for header in col_headers:
-                         pdf.cell(col_width, 10, str(header), border=1, align='C', fill=True)
-                     pdf.ln()
-                     pdf.set_font("helvetica", "", 10)
-                     pdf.set_text_color(0, 0, 0)
-                     
-                if fill:
-                     pdf.set_fill_color(240, 240, 240)
-                else:
-                     pdf.set_fill_color(255, 255, 255)
+                pdf = FPDF(orientation='L', unit='mm', format='A4')
+                pdf.add_page()
                 
-                # Print cells
-                for item in row:
-                    # Truncate strings to prevent cell overflow
-                    val = str(item)[:30] + "..." if len(str(item)) > 30 else str(item)
-                    pdf.cell(col_width, 8, val, border=1, align='L', fill=True)
+                # Company Logo Header
+                logo_path = self._get_company_logo_path()
+                if logo_path:
+                    try:
+                        pdf.image(logo_path, x=10, y=8, h=18)
+                    except Exception:
+                        pass  # Skip logo if image format unsupported
+                
+                # Title (offset right if logo exists)
+                title_x = 35 if logo_path else 10
+                pdf.set_xy(title_x, 10)
+                pdf.set_font("helvetica", "B", 16)
+                title_text = f"Contragest - {name} Report"
+                pdf.cell(0, 8, safe_pdf_str(title_text), align="C", new_x="LMARGIN", new_y="NEXT")
+                
+                pdf.set_font("helvetica", "I", 10)
+                gen_text = f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                pdf.cell(0, 8, safe_pdf_str(gen_text), align="C", new_x="LMARGIN", new_y="NEXT")
+                pdf.ln(5)
+                
+                # Table logic: distribute column widths evenly for simplicity
+                epw = pdf.w - 2 * pdf.l_margin
+                col_width = epw / len(col_headers) if col_headers else epw
+                
+                # Header Row
+                pdf.set_font("helvetica", "B", 11)
+                pdf.set_fill_color(66, 139, 202) # Nice subtle blue header
+                pdf.set_text_color(255, 255, 255)
+                for header in col_headers:
+                    pdf.cell(col_width, 10, safe_pdf_str(str(header)), border=1, align='C', fill=True)
                 pdf.ln()
-                fill = not fill
 
-            pdf.output(file_path)
-            Messagebox.show_info(f"PDF Report cleanly exported to {file_path}", "Success")
-            
-        except Exception as e:
-            Messagebox.show_error(f"An error occurred during PDF generation:\n{e}", "Export Error")
+                # Data Rows
+                pdf.set_font("helvetica", "", 10)
+                pdf.set_text_color(0, 0, 0)
+                fill = False
+                for row in data_rows:
+                    if pdf.get_y() > 180: # Margin threshold, add new page
+                         pdf.add_page()
+                         # Redraw headers
+                         pdf.set_font("helvetica", "B", 11)
+                         pdf.set_fill_color(66, 139, 202)
+                         pdf.set_text_color(255, 255, 255)
+                         for header in col_headers:
+                             pdf.cell(col_width, 10, safe_pdf_str(str(header)), border=1, align='C', fill=True)
+                         pdf.ln()
+                         pdf.set_font("helvetica", "", 10)
+                         pdf.set_text_color(0, 0, 0)
+                         
+                    if fill:
+                         pdf.set_fill_color(240, 240, 240)
+                    else:
+                         pdf.set_fill_color(255, 255, 255)
+                    
+                    # Print cells
+                    for item in row:
+                        # Truncate strings to prevent cell overflow
+                        raw_val = str(item)
+                        val = raw_val[:30] + "..." if len(raw_val) > 30 else raw_val
+                        pdf.cell(col_width, 8, safe_pdf_str(val), border=1, align='L', fill=True)
+                    pdf.ln()
+                    fill = not fill
+
+                pdf.output(file_path)
+                self.after(0, lambda: Messagebox.show_info(f"PDF Report cleanly exported to {file_path}", "Success"))
+                
+            except Exception as e:
+                logger.exception("PDF Export failed in ReportsView")
+                self.after(0, lambda e=e: Messagebox.show_error(f"An error occurred during PDF generation:\n{e}", "Export Error"))
+
+        threading.Thread(target=run_export, daemon=True).start()
 
     def apply_table_styling(self, name, table):
         """Applies dynamic row coloring based on the active tab and data values."""

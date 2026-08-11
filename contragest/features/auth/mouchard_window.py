@@ -1,7 +1,8 @@
-import ttkbootstrap as ttk
+﻿import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from contragest.lib.auth_core.ui.mouchard import MouchardPanel
 from typing import Any
+from contragest.core.status_bar import StatusLabel
 
 class MouchardWindow(ttk.Toplevel):
     """
@@ -18,6 +19,11 @@ class MouchardWindow(ttk.Toplevel):
         self._center_window()
 
     def _create_widgets(self):
+        # Add Persistent Status Bar (Bottom) - Reserve before panel build
+        self.status_bar = StatusLabel(self)
+        self.status_bar.pack(side=BOTTOM, fill=X)
+        self.status_bar.set_status("Viewing Audit Logs")
+
         self.panel = MouchardPanel(self, self.auth_service, self.current_user)
         self.panel.pack(fill=BOTH, expand=YES)
 
