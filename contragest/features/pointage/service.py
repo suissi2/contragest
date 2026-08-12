@@ -1421,10 +1421,12 @@ class PointageService:
                     note_str = ""
 
             # --- Merge Manual Correction Notes ---
+            note_from_correction = False
             exp_note = explicit_day_note_dict.get((m_key_base, lg_date))
             if exp_note is not None:
                 # If explicit DAY_NOTE was set by user, it owns the cell completely
                 note_str = exp_note
+                note_from_correction = True
             else:
                 m_notes = manual_note_dict.get((m_key_base, lg_date), [])
                 if m_notes:
@@ -1433,8 +1435,7 @@ class PointageService:
                     # we only show the manual one(s) as they are more specific.
                     combined = " | ".join(m_notes)
                     note_str = combined
-
-
+                    note_from_correction = True
 
             # Collect all raw punches for tooltip details
             punches_raw = []
@@ -1459,7 +1460,8 @@ class PointageService:
                 "synced_at": group[0].get("synced_at").strftime("%Y-%m-%d %H:%M") if group[0].get("synced_at") else "-",
                 "id": group[0].get("id"), "last_name": last_name, "emp_id": emp_id,
                 "punches": punches_raw, # Pass raw detail for UI hover tooltips
-                "is_auto": getattr(emp, 'is_auto_punch', False) if emp else False
+                "is_auto": getattr(emp, 'is_auto_punch', False) if emp else False,
+                "note_from_correction": note_from_correction
             })
 
         if original_start or original_end or dept_filter:
@@ -1735,6 +1737,7 @@ class PointageService:
                     ci, co, ci2, co2, attn_t, work_t, diff_t, sched_name = "-", "-", "-", "-", "-", "-", "-", "-"
                     
                     # Standardize manual note to 'Non Réalisé'
+                    note_from_correction = bool(manual_note)
                     note_str = (manual_note.strip().replace("Not Completed", "Non Réalisé") if manual_note else "")
                     machine_src = "-"
                     if best_sched:
@@ -1843,7 +1846,8 @@ class PointageService:
                         "schedule": sched_name, "check_in": ci, "check_out": co, "check_in_2": ci2, "check_out_2": co2,
                         "attendance_time": attn_t, "work_time": work_t, "difference": diff_t, "note": note_str,
                         "machine": machine_src, "synced_at": "-", "id": -1, "last_name": last_name, "status": day_status,
-                        "is_auto": getattr(emp, 'is_auto_punch', False) if emp else False
+                        "is_auto": getattr(emp, 'is_auto_punch', False) if emp else False,
+                        "note_from_correction": note_from_correction
                     }
                     
                     # Clear times if status is not 'P', 'JFB', or 'RHB'
@@ -1866,12 +1870,16 @@ class PointageService:
                     pass
                 final_list.append(r)
         
-        # Filter notes to only display predefined notes entered in the "NOTE MANAGEMENT" pane
+        # Filter notes to only display predefined notes entered in the "NOTE MANAGEMENT" pane.
+        # Notes set via a manual correction (DAY_NOTE / MANUAL_NOTE) are exempt: the user typed
+        # them on purpose and free-text should never be silently stripped.
         try:
             predefined_notes = self.get_predefined_notes()
             predefined_names = {n["name"].strip().lower() for n in predefined_notes if n.get("name")}
             for x in final_list:
                 note_val = x.get("note")
+                if note_val and x.get("note_from_correction"):
+                    continue
                 if note_val and note_val.strip().lower() not in predefined_names:
                     x["note"] = ""
         except Exception as note_err:
@@ -2422,6 +2430,164 @@ class PointageService:
             "in2":  parts[2] if len(parts) > 2 else "-",
             "out2": parts[3] if len(parts) > 3 else "-",
         }
+
+    def _day_slots_from_enriched(self, reg_number: str, shift_date: str) -> dict:
+        """Fallback read of the current IN1/OUT1/IN2/OUT2 from the enriched view
+        (raw-punch pairing) when no DAY_PROGRAM override exists yet."""
+        enriched_key = {
+            "in1": "check_in", "out1": "check_out",
+            "in2": "check_in_2", "out2": "check_out_2",
+        }
+        slots = {"in1": "-", "out1": "-", "in2": "-", "out2": "-"}
+        try:
+            import re
+            records = self.get_attendance_records_enriched(
+                reg_filter=reg_number, start_date=shift_date, end_date=shift_date)
+            for r in records:
+                date_disp = str(r.get("date") or "")
+                m = re.search(r"(\d{2})-(\d{2})-(\d{4})", date_disp)
+                iso = f"{m.group(3)}-{m.group(2)}-{m.group(1)}" if m else date_disp
+                if iso != shift_date:
+                    continue
+                for key, rkey in enriched_key.items():
+                    v = str(r.get(rkey) or "-")
+                    if v and v not in ("-", "None"):
+                        slots[key] = v
+                break
+        except Exception:
+            pass
+        return slots
+
+    def set_punch_slot(self, registration_number: str, punch_date: str,
+                       col_name: str, time_val: str,
+                       admin_name: str = "SYSTEM", reason: str = "") -> tuple:
+        """Sets or clears one grid slot reliably, even on night-shift days.
+
+        The GUI edit dialog historically calls ``add_manual_punch`` which
+        writes a raw AttendanceRecord.  On night-shift schedules (e.g.
+        "18 -> 02") the enriched grid re-pairs raw punches chronologically, so
+        an edited/added record gets re-paired into a different visual slot and
+        the edit *never sticks* on screen.  This method instead pins the exact
+        IN1/OUT1/IN2/OUT2 via a DAY_PROGRAM override (``save_day_program``)
+        that the enriched view displays verbatim — the same deterministic
+        mechanism used by ``execution/move_punch_cli.py``.
+
+        time_val: "HH:MM", "HH:MM:SS" or "-" (clear the slot).
+        Returns (ok, msg).
+        """
+        slot_key = {"IN 1": "in1", "OUT 1": "out1",
+                    "IN 2": "in2", "OUT 2": "out2"}.get(col_name)
+        if not slot_key:
+            return False, f"Unknown grid column {col_name!r}"
+        new_val = str(time_val).strip() or "-"
+        if new_val != "-":
+            if not re.fullmatch(r"\d{1,2}:\d{2}(:\d{2})?", new_val):
+                return False, f"Invalid time {time_val!r}; use HH:MM or HH:MM:SS"
+            # Normalise HH:MM -> HH:MM:00 so the override matches the grid's
+            # "HH:MM:SS" display format consistently.
+            parts = new_val.split(":")
+            new_val = f"{int(parts[0]):02d}:{parts[1]}" + (f":{parts[2]}" if len(parts) > 2 else ":00")
+        slots = self._get_day_program(registration_number, punch_date)
+        if not slots:
+            slots = self._day_slots_from_enriched(registration_number, punch_date)
+        slots[slot_key] = new_val
+        ok, msg = self.save_day_program(
+            registration_number, punch_date,
+            in1=slots["in1"], out1=slots["out1"],
+            in2=slots["in2"], out2=slots["out2"],
+            admin_name=admin_name,
+        )
+        if ok and reason:
+            self._append_day_program_reason(registration_number, punch_date, reason)
+        return ok, msg
+
+    def move_punch_slot(self, reg_number: str, src_date: str, src_col: str,
+                        dst_date: str, dst_col: str,
+                        admin_name: str = "SYSTEM", reason: str = "") -> tuple:
+        """Move a punch between grid slots via DAY_PROGRAM overrides (reliable).
+
+        Mirrors ``execution/move_punch_cli.py``: on night-shift days the
+        enriched grid re-pairs raw punches, so a raw-record move
+        (add_manual_punch + delete_manual_punch) executes but never sticks
+        visually.  This pins the slots verbatim via ``save_day_program`` so
+        the move always shows up and survives reloads.
+
+        src_date/dst_date: "YYYY-MM-DD".  Returns (ok, msg).
+        """
+        col_key = {"IN 1": "in1", "OUT 1": "out1",
+                   "IN 2": "in2", "OUT 2": "out2"}
+        src_key = col_key.get(src_col)
+        dst_key = col_key.get(dst_col)
+        if not src_key or not dst_key:
+            return False, f"Unknown grid column {src_col!r}/{dst_col!r}"
+        same_day = (src_date == dst_date)
+
+        src_slots = self._get_day_program(reg_number, src_date)
+        if not src_slots:
+            src_slots = self._day_slots_from_enriched(reg_number, src_date)
+        src_val = str(src_slots.get(src_key, "-")).strip()
+        if src_val in ("-", "", "None"):
+            return False, f"No punch in {src_col} for REG {reg_number} on {src_date}."
+
+        dst_slots = self._get_day_program(reg_number, dst_date)
+        if not dst_slots:
+            dst_slots = self._day_slots_from_enriched(reg_number, dst_date)
+        if same_day and str(dst_slots.get(dst_key, "-")).strip() == src_val:
+            return True, f"{src_col} already holds {src_val} on {src_date}."
+
+        # IMPORTANT: for a same-day move, src_slots and dst_slots are two
+        # independent reads — mutating both in place and writing one loses the
+        # other.  Apply both changes to ONE shared dict.
+        if same_day:
+            slots = src_slots
+            slots[src_key] = "-"
+            slots[dst_key] = src_val
+            ok, msg = self.save_day_program(
+                reg_number, src_date,
+                in1=slots["in1"], out1=slots["out1"],
+                in2=slots["in2"], out2=slots["out2"],
+                admin_name=admin_name,
+            )
+            if ok and reason:
+                self._append_day_program_reason(reg_number, src_date,
+                                                f"Move {src_col}->{dst_col}: {reason}")
+            return ok, (f"Moved {src_col} {src_val} -> {dst_col} on {src_date}." if ok else msg)
+
+        dst_slots[dst_key] = src_val
+        src_slots[src_key] = "-"
+        ok1, msg1 = self.save_day_program(
+            reg_number, src_date,
+            in1=src_slots["in1"], out1=src_slots["out1"],
+            in2=src_slots["in2"], out2=src_slots["out2"],
+            admin_name=admin_name,
+        )
+        ok2, msg2 = self.save_day_program(
+            reg_number, dst_date,
+            in1=dst_slots["in1"], out1=dst_slots["out1"],
+            in2=dst_slots["in2"], out2=dst_slots["out2"],
+            admin_name=admin_name,
+        )
+        if ok1 and ok2 and reason:
+            self._append_day_program_reason(
+                reg_number, dst_date, f"Move {src_col}->{dst_col}: {reason}")
+        return (ok1 and ok2), (msg1 if not ok1 else msg2)
+
+    def _append_day_program_reason(self, reg_number: str, shift_date: str, reason: str) -> None:
+        """Attaches the operator's free-text reason to the DAY_PROGRAM audit log."""
+        from contragest.core.database import AttendanceCorrectionLog, Employee
+        reg_number = str(reg_number).strip()
+        emp = self.session.query(Employee).filter_by(registration_number=reg_number).first()
+        if not emp:
+            return
+        row = self.session.query(AttendanceCorrectionLog).filter(
+            ((AttendanceCorrectionLog.reg_number == reg_number) |
+             (AttendanceCorrectionLog.employee_id == emp.id)),
+            AttendanceCorrectionLog.shift_date == str(shift_date)[:10],
+            AttendanceCorrectionLog.issue_type == "DAY_PROGRAM",
+        ).first()
+        if row is not None:
+            row.notes = f"{reason} (via pointage edit)"
+            self.session.commit()
 
     @staticmethod
     def _slot_key(punch_type: str, slot_index: int) -> str:
