@@ -944,8 +944,8 @@ class PointageService:
                         "in2":  parts[2] if len(parts) > 2 else "-",
                         "out2": parts[3] if len(parts) > 3 else "-",
                     }
-        except Exception:
-            pass
+        except Exception as load_err:
+            logger.error(f"get_attendance_records_enriched: failed to load correction logs: {load_err}")
 
         # ── 6. Load deletions (manual punch deletions) ─────────────────────
         deletions_set = set()
@@ -961,8 +961,8 @@ class PointageService:
                 emp_key = d.employee_id
                 if emp_key and d.shift_date and d.imputed_val:
                     deletions_set.add((emp_key, d.shift_date, d.imputed_val))
-        except Exception:
-            pass
+        except Exception as del_err:
+            logger.error(f"get_attendance_records_enriched: failed to load punch deletions: {del_err}")
 
         # ── 7. Group raw_records by (employee, logic_date) ────────────────
         # Strategy: per-punch, per-calendar-date schedule-aware cutoff.

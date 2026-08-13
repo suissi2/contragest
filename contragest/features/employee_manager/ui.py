@@ -1780,7 +1780,7 @@ class EmployeeManagerWindow(ttk.Toplevel):
                     
                 self.after(0, lambda: Messagebox.show_info(report, "Biometric Report"))
             except Exception as e:
-                self.after(0, lambda: Messagebox.show_error(f"Scan failed: {e}", "Error"))
+                self.after(0, lambda e=e: Messagebox.show_error(f"Scan failed: {e}", "Error"))
             finally:
                 self.after(0, lambda: self.status_bar.set_status("Ready", "idle"))
                 
@@ -1808,8 +1808,8 @@ class EmployeeManagerWindow(ttk.Toplevel):
                     "Success"
                 ))
             except Exception as e:
-                self.after(0, lambda: self.status_bar.set_status(f"Error: {e}", "error"))
-                self.after(0, lambda: Messagebox.show_error(f"Upload failed: {e}", "Error"))
+                self.after(0, lambda e=e: self.status_bar.set_status(f"Error: {e}", "error"))
+                self.after(0, lambda e=e: Messagebox.show_error(f"Upload failed: {e}", "Error"))
             finally:
                 self.after(0, lambda: self.status_bar.set_status("Ready", "idle"))
                 
@@ -1997,7 +1997,7 @@ class EmployeeManagerWindow(ttk.Toplevel):
                 self.after(0, self.load_all_employees)
                 if hasattr(self, "_on_personnel_select"): self.after(0, self._on_personnel_select)
             except Exception as e:
-                self.after(0, lambda: Messagebox.show_error(f"Capture Error: {e}", "Error"))
+                self.after(0, lambda e=e: Messagebox.show_error(f"Capture Error: {e}", "Error"))
 
         WebcamCaptureDialog(self, emp_name, on_capture)
 
@@ -2286,7 +2286,7 @@ class EmployeeManagerWindow(ttk.Toplevel):
                         reader = csv.DictReader(f)
                         records = list(reader)
             except Exception as e:
-                self.after(0, lambda: Messagebox.show_error(f"Failed to read file: {e}", "Import Error"))
+                self.after(0, lambda e=e: Messagebox.show_error(f"Failed to read file: {e}", "Import Error"))
                 self.after(0, lambda: self.status_bar.set_status("Ready", "idle"))
                 return
 
@@ -2348,7 +2348,7 @@ class EmployeeManagerWindow(ttk.Toplevel):
                 self.session.commit()
             except Exception as e:
                 self.session.rollback()
-                self.after(0, lambda: Messagebox.show_error(f"DB commit failed: {e}", "Import Error"))
+                self.after(0, lambda e=e: Messagebox.show_error(f"DB commit failed: {e}", "Import Error"))
                 self.after(0, lambda: self.status_bar.set_status("Ready", "idle"))
                 return
 

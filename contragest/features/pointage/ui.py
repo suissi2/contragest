@@ -1269,8 +1269,8 @@ class PointageWindow(ttk.Toplevel):
                 self.after(0, lambda: self._machine_vars["clock_time"].set(f"❌ {msg}"))
                 self.after(0, lambda: self._machine_clock_time_var.set(f"❌ {msg}"))
         except Exception as e:
-            self.after(0, lambda: self._machine_vars["clock_time"].set(f"❌ {e}"))
-            self.after(0, lambda: self._machine_clock_time_var.set(f"❌ {e}"))
+            self.after(0, lambda e=e: self._machine_vars["clock_time"].set(f"❌ {e}"))
+            self.after(0, lambda e=e: self._machine_clock_time_var.set(f"❌ {e}"))
 
     def _log_machine(self, msg):
         """Append a timestamped message to the machine config logs pane."""
@@ -3483,9 +3483,6 @@ class PointageWindow(ttk.Toplevel):
         # Store total row count and sync custom navigation label
         self._current_total_rows = len(rows)
         self._update_nav_lbl()
-        
-        # Store total count for metadata updates
-        self._current_total_rows = len(rows)
         
         # Modern Grid Aesthetics
         # NB: ttkbootstrap Tableview builds its Treeview with the derived
