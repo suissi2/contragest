@@ -3861,6 +3861,7 @@ class PointageWindow(ttk.Toplevel):
 
         emp_name = values[3] if len(values) > 3 else "-"
         iso_date = self._parse_iso_date(formatted_date)
+        current_note = str(values[14]).strip() if len(values) > 14 else "-"
 
         # Column-aware: right-click directly on the SCHED or STAT column opens
         # a focused editing menu (change / reset). Other columns keep the full
@@ -3916,6 +3917,15 @@ class PointageWindow(ttk.Toplevel):
                 emp_name=emp_name,
                 iso_date=iso_date,
                 current_sched=current_sched,
+            )
+        )
+        menu.add_command(
+            label=f"📝  Edit Note  ({reg_number})",
+            command=lambda: self._open_note_editor_dialog(
+                reg_number=reg_number,
+                emp_name=emp_name,
+                iso_date=iso_date,
+                current_note=current_note,
             )
         )
         menu.add_separator()
@@ -4267,7 +4277,13 @@ class PointageWindow(ttk.Toplevel):
         note_text.insert("1.0", current_note if current_note and current_note != "-" else "")
 
         # Quick-pick from the predefined notes list (optional convenience).
-        predefined = self.service.get_predefined_notes()
+        # NEVER let a failure here abort the dialog build — the note editor must
+        # open even if the predefined-notes query errors (otherwise the whole
+        # "add note" option appears dead).
+        try:
+            predefined = self.service.get_predefined_notes()
+        except Exception:
+            predefined = []
         if predefined:
             tk.Label(body, text="Quick note:", font=("Space Mono", 8, "bold"),
                      bg=MAIN_BG, fg=TEXT_MUTED).pack(anchor=tk.W, pady=(6, 2))

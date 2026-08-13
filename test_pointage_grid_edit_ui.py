@@ -1072,3 +1072,40 @@ def test_note_editor_save_calls_service(window, msgbox, tk_widgets, monkeypatch)
     window._deferred_reload_records.assert_called_once()
     msgbox.show_error.assert_not_called()
 
+
+def test_context_menu_has_edit_note_entry(window, msgbox, tk_widgets):
+    """The row context menu exposes an 'Edit Note' entry that opens the editor.
+
+    The note editor was previously only reachable by right-clicking EXACTLY on
+    the NOTE column — a right-click anywhere else on the row showed no way to
+    add a note, so users reported "l'option d'ajout note ne fonctionne pas".
+    """
+    values = list(_values())
+    values[14] = "Rappel client"  # NOTE at index 14
+    view = window._records_table.view
+    view.identify_row.return_value = "i1"
+    view.item.return_value = values
+    view.identify_column.return_value = "#1"  # DATE column → full menu
+
+    window._open_note_editor_dialog = MagicMock()
+    event = types.SimpleNamespace(x=100, y=50, x_root=100, y_root=50)
+    window._on_right_click_record(event)
+
+    menu = tk_widgets["menus"][0]
+    labels = _labels(menu.add_command.call_args_list)
+    assert any("Edit Note" in lbl for lbl in labels), f"no Edit Note entry in {labels}"
+
+    # Invoke the Edit Note command → opens the note editor with the right args
+    edit_cmd = None
+    for c in menu.add_command.call_args_list:
+        if "Edit Note" in (c.kwargs.get("label") or ""):
+            edit_cmd = c.kwargs["command"]
+    assert edit_cmd is not None
+    edit_cmd()
+    window._open_note_editor_dialog.assert_called_once_with(
+        reg_number="123",
+        emp_name="Name",
+        iso_date="2026-07-05",
+        current_note="Rappel client",
+    )
+
