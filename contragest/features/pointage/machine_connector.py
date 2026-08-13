@@ -314,42 +314,57 @@ class MachineConnector:
             self.disconnect()
             return []
 
+    def _find_free_uid(self, taken_uids, preferred):
+        """Return the smallest internal UID >= preferred that is not in *taken_uids*."""
+        uid = max(preferred, 1)
+        taken = set(taken_uids)
+        while uid in taken:
+            uid += 1
+            if uid > 100_000:   # safety cap; ZK UID is uint32 in practice
+                break
+        return uid
+
     def upload_user(self, ip: str, port: int, password: str,
                     uid: int, name: str, privilege: int = 0, user_password: str = "") -> bool:
         """
         Push a single employee to the machine.
-        Intelligently handles cases where the user already exists with a different internal UID.
+
+        Handles two conflict scenarios:
+        1. The employee already exists with a *different* internal UID — reuse
+           the existing slot so attendance punches keep linking to the same
+           user_id (registration number).
+        2. The target UID is occupied by a *different* employee — find the
+           next free UID slot so the upload still succeeds.  The ZK protocol
+           uses ``user_id`` (the registration-number string) as the business
+           key, so changing the internal UID slot is safe: attendance records
+           always reference ``user_id``, not ``uid``.
         """
         if not PYZK_AVAILABLE:
             return False
         try:
             conn = self.connect(ip, port, password)
-            
-            # --- Robust Lookup Logic ---
-            # Some machines might already have this employee with a different internal UID.
-            # We check by 'user_id' (the string registration number) first.
+
             existing_users = conn.get_users()
             reg_str = str(uid)
             target_uid = uid
-            
+
             match = next((u for u in existing_users if str(u.user_id) == reg_str), None)
             if match:
                 if match.uid != uid:
                     logger.info(f"User {reg_str} exists on {ip} with different UID ({match.uid}). Using existing UID.")
                 target_uid = match.uid
             else:
-                # Check if the target UID is already taken by someone ELSE
                 conflict = next((u for u in existing_users if u.uid == uid), None)
                 if conflict:
+                    target_uid = self._find_free_uid(
+                        [u.uid for u in existing_users], preferred=uid
+                    )
                     msg = (f"UID {uid} on {ip} is taken by '{conflict.name}' (UserID: {conflict.user_id}). "
-                           f"Cannot upload {name} to this UID.")
+                           f"Uploading {name} to free UID {target_uid} instead.")
+                    logger.warning(msg)
                     ErrorReporter.report_warning(msg, context="machine_connector")
-                    # In a real scenario, we might want to find the next available UID, 
-                    # but for now, we fail to avoid overwriting data.
-                    self.disconnect()
-                    return False
 
-            conn.set_user(uid=target_uid, name=name, privilege=privilege, 
+            conn.set_user(uid=target_uid, name=name, privilege=privilege,
                           password=user_password, user_id=reg_str)
             self.disconnect()
             return True
