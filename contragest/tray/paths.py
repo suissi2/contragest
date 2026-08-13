@@ -49,6 +49,22 @@ def heartbeat_file() -> str:
     return os.path.join(logs_dir(), "service_heartbeat.json")
 
 
+def notifications_file() -> str:
+    """Path of ``logs/service_notifications.json`` written by the service.
+
+    Pointage notification events (attendance audit, machine sync errors,
+    contract alerts) are read by the tray agent and shown as balloons even
+    when the desktop app is closed.
+
+    Must stay in sync with
+    ``contragest.logic.notifications.default_notifications_file``.
+    """
+    env = os.environ.get("CONTRAGEST_NOTIFICATIONS_PATH")
+    if env:
+        return env
+    return os.path.join(logs_dir(), "service_notifications.json")
+
+
 def assets_dir() -> Optional[str]:
     """Folder with company_logo.png when running from source (None if absent)."""
     for candidate in (

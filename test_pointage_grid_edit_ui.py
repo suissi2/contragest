@@ -63,6 +63,7 @@ def _patch_tk(monkeypatch):
         "comboboxes": [],
         "ttk_buttons": [],
         "ttk_entries": [],
+        "texts": [],
     }
 
     def _factory(key):
@@ -81,6 +82,7 @@ def _patch_tk(monkeypatch):
     monkeypatch.setattr(pui.ttk, "Button", _factory("ttk_buttons"))
     monkeypatch.setattr(pui.ttk, "Combobox", _factory("comboboxes"))
     monkeypatch.setattr(pui.ttk, "Entry", _factory("ttk_entries"))
+    monkeypatch.setattr(pui.tk, "Text", _factory("texts"))
     monkeypatch.setattr(pui.ttk, "StringVar", MagicMock)
     return captured
 
@@ -641,73 +643,432 @@ def test_confirm_cell_move_rejects_missing_reason(window, msgbox, tk_widgets, mo
 
 
 def test_perform_cell_move_calls_service(window, msgbox):
-    """A confirmed move sets the destination slot then clears the source."""
-    window.service.add_manual_punch.return_value = (True, "Punch updated")
-    window.service.delete_manual_punch.return_value = (True, "Punch deleted")
+    """A confirmed move delegates to the reliable DAY_PROGRAM override path."""
+    window.service.move_punch_slot.return_value = (True, "Moved IN 1 -> OUT 1")
     src = {"reg": "123", "date": "2026-07-05", "col": "IN 1", "time": "08:00"}
     dst = {"reg": "123", "date": "2026-07-06", "col": "OUT 1", "time": "17:00"}
     window._perform_cell_move(src, dst, "swap")
 
-    add_kw = window.service.add_manual_punch.call_args.kwargs
-    assert add_kw["registration_number"] == "123"
-    assert add_kw["punch_date"] == "2026-07-06"
-    assert add_kw["punch_time"] == "08:00"
-    assert add_kw["punch_type"] == "check_out"
-    assert add_kw["slot_index"] == 1
-    assert add_kw["admin_name"] == "boss"
-    assert add_kw["reason"].startswith("Move from REG 123 2026-07-05 IN 1")
-
-    del_kw = window.service.delete_manual_punch.call_args.kwargs
-    assert del_kw["registration_number"] == "123"
-    assert del_kw["punch_date"] == "2026-07-05"
-    assert del_kw["punch_type"] == "check_in"
-    assert del_kw["slot_index"] == 1
-    assert del_kw["reason"].startswith("Move to REG 123 2026-07-06 OUT 1")
+    kw = window.service.move_punch_slot.call_args.kwargs
+    assert kw["reg_number"] == "123"
+    assert kw["src_date"] == "2026-07-05"
+    assert kw["src_col"] == "IN 1"
+    assert kw["dst_date"] == "2026-07-06"
+    assert kw["dst_col"] == "OUT 1"
+    assert kw["admin_name"] == "boss"
+    assert kw["reason"] == "swap"
 
     window._deferred_reload_records.assert_called_once_with()
+    msgbox.show_error.assert_not_called()
 
 
 def test_perform_cell_move_passes_destination_date_verbatim(window, msgbox):
     """A punch before 04:00 belongs to the previous logic day.
 
-    The UI must pass the DESTINATION date as-is: ``add_manual_punch`` already
-    shifts the physical calendar date forward so the record lands on the
-    destination logic day. Bumping here as well double-shifts the value onto
-    the day AFTER the destination (the REG 1921 bug).
+    The UI must pass the DESTINATION date as-is to the service, which handles
+    any logic-day adjustment. Bumping here as well double-shifts the value
+    onto the day AFTER the destination (the REG 1921 bug).
     """
-    window.service.add_manual_punch.return_value = (True, "Punch updated")
-    window.service.delete_manual_punch.return_value = (True, "Punch deleted")
+    window.service.move_punch_slot.return_value = (True, "Moved")
     src = {"reg": "985", "date": "2026-07-08", "col": "IN 1", "time": "03:04:47"}
     dst = {"reg": "985", "date": "2026-07-09", "col": "IN 1", "time": "-"}
     window._perform_cell_move(src, dst, "swap")
 
-    add_kw = window.service.add_manual_punch.call_args.kwargs
-    assert add_kw["punch_date"] == "2026-07-09"  # destination date, no bump
-    assert add_kw["punch_time"] == "03:04:47"
-
-    del_kw = window.service.delete_manual_punch.call_args.kwargs
-    assert del_kw["punch_date"] == "2026-07-08"
+    kw = window.service.move_punch_slot.call_args.kwargs
+    assert kw["dst_date"] == "2026-07-09"  # destination date, no bump
     window._deferred_reload_records.assert_called_once_with()
+    msgbox.show_error.assert_not_called()
 
 
 def test_perform_cell_move_aborts_when_target_add_fails(window, msgbox):
-    """If the destination cannot be written, the source is left untouched."""
-    window.service.add_manual_punch.return_value = (False, "Failed")
+    """If the move cannot be written, an error is shown and no reload occurs."""
+    window.service.move_punch_slot.return_value = (False, "Failed")
     src = {"reg": "123", "date": "2026-07-05", "col": "IN 1", "time": "08:00"}
     dst = {"reg": "123", "date": "2026-07-06", "col": "IN 1", "time": "-"}
     window._perform_cell_move(src, dst, "swap")
-    window.service.delete_manual_punch.assert_not_called()
     window._deferred_reload_records.assert_not_called()
     msgbox.show_error.assert_called_once()
 
 
-def test_perform_cell_move_warns_when_source_clear_fails(window, msgbox):
-    """Target written but source not cleared -> warning, still reloads."""
-    window.service.add_manual_punch.return_value = (True, "Punch updated")
-    window.service.delete_manual_punch.return_value = (False, "Not found")
-    src = {"reg": "123", "date": "2026-07-05", "col": "IN 1", "time": "08:00"}
-    dst = {"reg": "123", "date": "2026-07-06", "col": "IN 1", "time": "-"}
-    window._perform_cell_move(src, dst, "swap")
-    msgbox.show_warning.assert_called_once()
-    window._deferred_reload_records.assert_called_once_with()
+# ── Keyboard editing (Excel-like fast corrections) ───────────────────────────
+
+
+def _punch_event(char=None, state=0, keysym=None):
+    return types.SimpleNamespace(char=char, state=state, keysym=keysym)
+
+
+def _arm(window, src, item="i1", emp="Name"):
+    """Arm a punch cell on the mocked grid (mirrors a click on the cell)."""
+    window._drag_src = dict(src)
+    window._drag_moved = False
+    window._move_src_item = item
+    window._move_src_emp = emp
+
+
+def test_punch_keypress_opens_inline_editor_with_typed_char(window):
+    """Typing a time character on the armed cell opens the inline editor."""
+    _arm(window, {"reg": "123", "date": "2026-07-05", "col": "IN 1", "time": "08:00"})
+    window._open_inline_editor = MagicMock()
+    assert window._on_punch_keypress(_punch_event(char="1")) == "break"
+    window._open_inline_editor.assert_called_once_with(
+        col_name="IN 1", iso_date="2026-07-05", reg_number="123",
+        _emp_name="Name", initial_text="1",
+    )
+
+
+def test_punch_keypress_ignored_for_ctrl_combos(window):
+    """Ctrl+letter is not a time edit (Ctrl+arrows do the moves)."""
+    _arm(window, {"reg": "123", "date": "2026-07-05", "col": "IN 1", "time": "08:00"})
+    window._open_inline_editor = MagicMock()
+    assert window._on_punch_keypress(_punch_event(char="r", state=4)) is None
+    window._open_inline_editor.assert_not_called()
+
+
+def test_punch_keypress_ignored_without_armed_cell(window):
+    window._open_inline_editor = MagicMock()
+    assert window._on_punch_keypress(_punch_event(char="1")) is None
+    window._open_inline_editor.assert_not_called()
+
+
+def test_punch_keypress_ignored_non_time_char(window):
+    """Letters (a-z) are not valid HH:MM input and must not open the editor."""
+    _arm(window, {"reg": "123", "date": "2026-07-05", "col": "IN 1", "time": "08:00"})
+    window._open_inline_editor = MagicMock()
+    assert window._on_punch_keypress(_punch_event(char="a")) is None
+    window._open_inline_editor.assert_not_called()
+
+
+def test_punch_edit_f2_prefills_current_value(window):
+    """F2/Enter opens the inline editor pre-filled with the armed cell's value."""
+    _arm(window, {"reg": "123", "date": "2026-07-05", "col": "IN 1", "time": "08:00"})
+    window._open_inline_editor = MagicMock()
+    assert window._on_punch_edit(_punch_event()) == "break"
+    window._open_inline_editor.assert_called_once_with(
+        col_name="IN 1", iso_date="2026-07-05", reg_number="123",
+        _emp_name="Name", current_time="08:00",
+    )
+
+
+def test_punch_edit_empty_cell_passes_blank(window):
+    """Editing an empty punch slot passes '' so the user types the new time."""
+    _arm(window, {"reg": "123", "date": "2026-07-05", "col": "IN 2", "time": "-"})
+    window._open_inline_editor = MagicMock()
+    window._on_punch_edit(_punch_event())
+    kw = window._open_inline_editor.call_args.kwargs
+    assert kw["current_time"] == ""
+
+
+def test_punch_tab_moves_to_next_column(window):
+    """Tab navigates IN1 → OUT1 on the same row."""
+    view = window._records_table.view
+    view.get_children.return_value = ["i1"]
+    view.item.return_value = _values()
+    _arm(window, {"reg": "123", "date": "2026-07-05", "col": "IN 1", "time": "08:00"})
+    assert window._on_punch_tab(_punch_event()) == "break"
+    assert window._drag_src == {
+        "reg": "123", "date": "2026-07-05", "col": "OUT 1", "time": "17:00",
+    }
+
+
+def test_punch_shift_tab_moves_to_previous_column(window):
+    """Shift+Tab navigates OUT2 → IN2 on the same row."""
+    view = window._records_table.view
+    view.get_children.return_value = ["i1"]
+    view.item.return_value = _values()
+    _arm(window, {"reg": "123", "date": "2026-07-05", "col": "OUT 2", "time": "17:00"})
+    window._on_punch_tab(_punch_event(state=1))  # Shift bit 0x1
+    assert window._drag_src["col"] == "IN 2"
+
+
+def test_punch_tab_wraps_to_next_data_row(window):
+    """Tab past OUT2 wraps to the next data row's IN1."""
+    view = window._records_table.view
+    view.get_children.return_value = ["i1", "i2"]
+    vals2 = list(_values())
+    vals2[0] = "Lun. 06-07-2026"
+    view.item.side_effect = lambda iid, opt=None: _values() if iid == "i1" else vals2
+    _arm(window, {"reg": "123", "date": "2026-07-05", "col": "OUT 2", "time": "17:00"})
+    window._on_punch_tab(_punch_event())
+    assert window._drag_src == {
+        "reg": "123", "date": "2026-07-06", "col": "IN 1", "time": "08:00",
+    }
+
+
+def test_punch_tab_skips_subtotal_rows(window):
+    """Navigation must never land on subtotal separator rows."""
+    view = window._records_table.view
+    view.get_children.return_value = ["i1", "sub", "i2"]
+    vals2 = list(_values())
+    vals2[0] = "Lun. 06-07-2026"
+
+    def side_effect(iid, opt=None):
+        if iid == "sub":
+            vals = list(_values())
+            vals[6] = "Subtotal"
+            return vals
+        return _values() if iid == "i1" else vals2
+
+    view.item.side_effect = side_effect
+    _arm(window, {"reg": "123", "date": "2026-07-05", "col": "OUT 2", "time": "17:00"})
+    window._on_punch_tab(_punch_event())
+    assert window._drag_src["col"] == "IN 1"
+    assert window._drag_src["date"] == "2026-07-06"
+
+
+def test_punch_ctrl_right_moves_value_to_next_column(window):
+    """Ctrl+→ moves the armed value to the adjacent column (audit dialog)."""
+    view = window._records_table.view
+    view.item.return_value = _values()
+    _arm(window, {"reg": "123", "date": "2026-07-05", "col": "IN 1", "time": "08:00"})
+    window._confirm_cell_move = MagicMock()
+    assert window._on_punch_ctrl_arrow(_punch_event(keysym="Right", state=4)) == "break"
+    src, dst = window._confirm_cell_move.call_args.args
+    assert src == {"reg": "123", "date": "2026-07-05", "col": "IN 1", "time": "08:00"}
+    assert dst == {"reg": "123", "date": "2026-07-05", "col": "OUT 1", "time": "17:00"}
+
+
+def test_punch_ctrl_left_moves_value_to_previous_column(window):
+    """Ctrl+← moves the armed value to the previous column."""
+    view = window._records_table.view
+    view.item.return_value = _values()
+    _arm(window, {"reg": "123", "date": "2026-07-05", "col": "IN 2", "time": "12:00"})
+    window._confirm_cell_move = MagicMock()
+    window._on_punch_ctrl_arrow(_punch_event(keysym="Left", state=4))
+    src, dst = window._confirm_cell_move.call_args.args
+    assert src["col"] == "IN 2"
+    assert dst["col"] == "OUT 1"
+    assert dst["time"] == "17:00"
+
+
+def test_punch_ctrl_down_moves_value_to_next_row(window):
+    """Ctrl+↓ moves the armed value to the same column on the next row."""
+    view = window._records_table.view
+    view.get_children.return_value = ["i1", "i2"]
+    vals2 = list(_values())
+    vals2[0] = "Lun. 06-07-2026"
+    vals2[7] = "09:00"
+    view.item.side_effect = lambda iid, opt=None: _values() if iid == "i1" else vals2
+    _arm(window, {"reg": "123", "date": "2026-07-05", "col": "IN 1", "time": "08:00"})
+    window._confirm_cell_move = MagicMock()
+    window._on_punch_ctrl_arrow(_punch_event(keysym="Down", state=4))
+    src, dst = window._confirm_cell_move.call_args.args
+    assert src["col"] == "IN 1"
+    assert dst == {"reg": "123", "date": "2026-07-06", "col": "IN 1", "time": "09:00"}
+
+
+def test_punch_ctrl_arrow_ignored_for_empty_source(window):
+    """Nothing to move when the armed cell is empty."""
+    _arm(window, {"reg": "123", "date": "2026-07-05", "col": "IN 1", "time": "-"})
+    window._confirm_cell_move = MagicMock()
+    assert window._on_punch_ctrl_arrow(_punch_event(keysym="Right", state=4)) is None
+    window._confirm_cell_move.assert_not_called()
+
+
+def test_punch_delete_removes_punch(window):
+    """Delete on an armed punch removes it via the audited path."""
+    _arm(window, {"reg": "123", "date": "2026-07-05", "col": "IN 1", "time": "08:00"})
+    window._remove_punch_for_slot = MagicMock()
+    assert window._on_punch_delete(_punch_event()) == "break"
+    window._remove_punch_for_slot.assert_called_once_with(
+        "123", "2026-07-05", "IN 1", "08:00",
+    )
+
+
+def test_punch_delete_ignored_for_empty_cell(window):
+    _arm(window, {"reg": "123", "date": "2026-07-05", "col": "IN 1", "time": "-"})
+    window._remove_punch_for_slot = MagicMock()
+    window._on_punch_delete(_punch_event())
+    window._remove_punch_for_slot.assert_not_called()
+
+
+def test_quick_punch_dialog_prefills_last_reason(window, msgbox, tk_widgets, monkeypatch):
+    """The reason field is pre-filled with the last-used reason."""
+    window._last_edit_reason = "Correction hebdo"
+    vars_created = _install_string_var_factory(monkeypatch)
+    window._open_quick_punch_dialog("123", "Name", "2026-07-05", "IN 1", "08:00")
+    assert len(vars_created) == 2  # time_var, reason_var
+    vars_created[1].set.assert_called_once_with("Correction hebdo")
+
+
+def test_quick_punch_dialog_save_remembers_reason(window, msgbox, tk_widgets, monkeypatch):
+    """A successful save records the reason for the next edit."""
+    window.service.set_punch_slot.return_value = (True, "Punch updated")
+    vars_created = _install_string_var_factory(monkeypatch)
+    window._open_quick_punch_dialog("123", "Name", "2026-07-05", "IN 1", "08:00")
+    vars_created[0].get.return_value = "17:45"        # time entry
+    vars_created[1].get.return_value = "Ajustement"   # reason entry
+    save_btn = tk_widgets["ttk_buttons"][0]           # ✅ Save created first
+    save_btn.kwargs["command"]()
+    assert window._last_edit_reason == "Ajustement"
+    kw = window.service.set_punch_slot.call_args.kwargs
+    assert kw["col_name"] == "IN 1"
+    assert kw["time_val"] == "17:45"
+    assert kw["reason"] == "Ajustement"
+
+
+# ── Inline editor (_commit_inline_edit) ──────────────────────────────────────
+
+
+def test_commit_inline_edit_saves_and_updates_status(window):
+    """A valid HH:MM commit calls set_punch_slot with the correct args."""
+    window.service.set_punch_slot.return_value = (True, "Punch updated")
+    window._commit_inline_edit("IN 1", "2026-07-05", "123", "17:45")
+    kw = window.service.set_punch_slot.call_args.kwargs
+    assert kw["registration_number"] == "123"
+    assert kw["punch_date"] == "2026-07-05"
+    assert kw["col_name"] == "IN 1"
+    assert kw["time_val"] == "17:45"
+    assert kw["reason"] == "Quick edit"
+    window._deferred_reload_records.assert_called_once()
+
+
+def test_commit_inline_edit_remembers_reason(window):
+    """The last-used reason is reused on the next commit."""
+    window.service.set_punch_slot.return_value = (True, "Updated")
+    window._last_edit_reason = "Nuit 02:00→08:00"
+    window._commit_inline_edit("OUT 1", "2026-07-05", "123", "08:00")
+    kw = window.service.set_punch_slot.call_args.kwargs
+    assert kw["reason"] == "Nuit 02:00→08:00"
+    assert window._last_edit_reason == "Nuit 02:00→08:00"
+
+
+def test_commit_inline_edit_rejects_bad_format(window):
+    window._commit_inline_edit("IN 1", "2026-07-05", "123", "eight")
+    window.service.set_punch_slot.assert_not_called()
+    window._transfer_status.configure.assert_called()
+
+
+def test_commit_inline_edit_empty_string_is_noop(window):
+    window._commit_inline_edit("IN 1", "2026-07-05", "123", "")
+    window.service.set_punch_slot.assert_not_called()
+
+
+def test_navigate_inline_col_moves_right(window):
+    """After Tab commit, the next column is armed."""
+    view = window._records_table.view
+    view.item.return_value = _values()  # real list so len() works
+    _arm(window, {"reg": "123", "date": "2026-07-05", "col": "IN 1", "time": "08:00"})
+    window._inline_col = "IN 1"
+    window._navigate_inline_col(1)
+    assert window._drag_src["col"] == "OUT 1"
+    assert window._drag_src["time"] == "17:00"
+
+
+def test_navigate_inline_col_wraps_not_past_out2(window):
+    """Navigation does not go past OUT 2."""
+    window._inline_col = "OUT 2"
+    window._move_src_item = None
+    window._navigate_inline_col(1)  # no crash
+
+
+def test_commit_inline_edit_service_failure_shows_error(window):
+    """A service error is shown in the status bar without reloading."""
+    window.service.set_punch_slot.return_value = (False, "Slot locked")
+    window._commit_inline_edit("IN 1", "2026-07-05", "123", "17:45")
+    window._deferred_reload_records.assert_not_called()
+    window._transfer_status.configure.assert_called()
+
+
+# ── Double-click on a punch cell → inline editor ─────────────────────────────
+
+
+def _double_click_event(x=1502, y=45):
+    return types.SimpleNamespace(x=x, y=y)
+
+
+def _setup_double_click(window, values=None, col_name="IN 1"):
+    view = window._records_table.view
+    view.identify_row.return_value = "i1"
+    view.item.return_value = values if values is not None else _values()
+    window._col_name_at = MagicMock(return_value=col_name)
+    window._open_quick_punch_dialog = MagicMock()
+    window._open_record_detail_card = MagicMock()
+
+
+def test_double_click_on_punch_column_opens_edit_dialog(window):
+    """Double-click on a punch cell opens the edit dialog (proven path)."""
+    _setup_double_click(window)
+    window._on_record_double_click(_double_click_event())
+    window._open_quick_punch_dialog.assert_called_once_with(
+        reg_number="123",
+        emp_name="Name",
+        iso_date="2026-07-05",
+        col_name="IN 1",
+        current_time="08:00",
+    )
+    window._open_record_detail_card.assert_not_called()
+
+
+def test_double_click_on_empty_punch_column_passes_blank(window):
+    """Double-click on an empty slot passes '' so the user can type a time."""
+    vals = list(_values())
+    vals[9] = ""  # IN 2 is empty
+    _setup_double_click(window, values=vals, col_name="IN 2")
+    window._on_record_double_click(_double_click_event())
+    kw = window._open_quick_punch_dialog.call_args.kwargs
+    assert kw["col_name"] == "IN 2"
+    assert kw["current_time"] == ""
+
+
+def test_double_click_on_other_column_opens_detail_card(window):
+    """Double-click anywhere else still opens the read-only detail card."""
+    _setup_double_click(window, col_name="DATE")
+    window._on_record_double_click(_double_click_event())
+    window._open_quick_punch_dialog.assert_not_called()
+    window._open_record_detail_card.assert_called_once_with(_values())
+
+
+def test_double_click_on_pad_row_is_ignored(window):
+    """Double-click on a separator/pad row does nothing."""
+    view = window._records_table.view
+    view.identify_row.return_value = "i1"
+    view.item.return_value = ["─" * 30, "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
+    window._col_name_at = MagicMock(return_value="IN 1")
+    window._open_quick_punch_dialog = MagicMock()
+    window._open_record_detail_card = MagicMock()
+    window._on_record_double_click(_double_click_event())
+    window._open_quick_punch_dialog.assert_not_called()
+    window._open_record_detail_card.assert_not_called()
+
+
+# ── NOTE column editing ───────────────────────────────────────────────────────
+
+
+def test_double_click_on_note_column_opens_note_editor(window):
+    """Double-click on the NOTE column opens the note editor dialog."""
+    vals = list(_values())
+    vals[14] = "Rappel client"  # NOTE at index 14
+    _setup_double_click(window, values=vals, col_name="NOTE")
+    window._open_note_editor_dialog = MagicMock()
+    window._on_record_double_click(_double_click_event())
+    window._open_note_editor_dialog.assert_called_once_with(
+        reg_number="123",
+        emp_name="Name",
+        iso_date="2026-07-05",
+        current_note="Rappel client",
+    )
+    window._open_record_detail_card.assert_not_called()
+
+
+def test_note_editor_save_calls_service(window, msgbox, tk_widgets, monkeypatch):
+    """A confirmed note edit writes via save_note_correction and reloads."""
+    window.service.get_predefined_notes.return_value = []  # no quick-pick block
+    window.service.save_note_correction.return_value = (True, "Note updated")
+    vars_created = _install_string_var_factory(monkeypatch)
+    window._open_note_editor_dialog("123", "Name", "2026-07-05", "Old note")
+
+    text_widget = tk_widgets["texts"][0]
+    text_widget.get.return_value = "New note text\n"
+    vars_created[0].get.return_value = "Ajout note"  # reason var (first StringVar)
+    save_btn = tk_widgets["ttk_buttons"][0]
+    save_btn.kwargs["command"]()
+
+    window.service.save_note_correction.assert_called_once_with(
+        reg_number="123",
+        shift_date="2026-07-05",
+        note_text="New note text",
+        admin_name="boss",
+    )
+    window._deferred_reload_records.assert_called_once()
+    msgbox.show_error.assert_not_called()
 

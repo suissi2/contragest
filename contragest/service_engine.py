@@ -362,12 +362,33 @@ class ServiceEngine:
                     self.sync_errors += 1
                     self.last_error = f"{m.name}: {exc}"
                     logger.warning("Machine sync error for %s: %s", m.name, exc)
+                    self._notify_sync_error(m.name, exc)
             with self._lock:
                 self.total_new_records += new_total
             self.last_machine_sync = datetime.now()
             logger.debug("Machine sync pass complete (%d new records)", new_total)
         finally:
             session.close()
+
+    # ── Pointage notifications ─────────────────────────────────────────────
+
+    def _notify_sync_error(self, machine_name: str, error: Exception) -> None:
+        """Balloon for a machine sync failure — at most one per machine per hour.
+
+        The hour-bucket dedup key also makes this safe across processes (the
+        desktop app and the service can both be polling the same machines).
+        """
+        try:
+            from contragest.logic.notifications import NotificationFeed
+            bucket = int(time.time()) // 3600
+            NotificationFeed().append(
+                "SYNC",
+                "Synchronisation — pointeuse hors ligne",
+                f"« {machine_name} » : {error}",
+                dedup_key=f"SYNC:{machine_name}:{bucket}",
+            )
+        except Exception as exc:  # defensive: never break the sync loop
+            logger.warning("Could not notify sync error: %s", exc)
 
     # ── Heartbeat ──────────────────────────────────────────────────────────
 

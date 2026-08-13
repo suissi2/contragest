@@ -42,6 +42,10 @@ import numpy as np
 
 logger = setup_logger("pointage_ui")
 
+# Punch time columns in the attendance grid, left → right. Used by the
+# keyboard editing mode for navigation (Tab) and value moves (Ctrl+←/→).
+PUNCH_COLS = ["IN 1", "OUT 1", "IN 2", "OUT 2"]
+
 # Cell-move diagnostics — always traced to _drag_debug.log so a failed
 # interaction can be reproduced and diagnosed. CONTRA_DRAG_DEBUG=1 also prints.
 _DRAG_DEBUG = os.environ.get("CONTRA_DRAG_DEBUG", "").strip().lower() in ("1", "true", "yes")
@@ -433,6 +437,13 @@ class PointageWindow(ttk.Toplevel):
         self._drag_src = None      # {reg, date, col, time} of the selected source cell
         self._drag_moved = False   # True once the pointer has moved (classic drag path)
         self._move_src_item = None # Treeview item ID of the highlighted source row
+        self._move_src_emp = ""    # Employee name of the armed cell (for edit dialogs)
+        self._inline_entry = None  # Active inline Entry overlay (Excel-like editing)
+        self._inline_col = ""      # Column being edited inline (for Tab navigation)
+
+        # Last reason typed in the punch edit dialog — pre-filled on the next
+        # edit so repeated corrections are one keystroke faster (audit kept).
+        self._last_edit_reason = ""
 
         # Global Suppression of "Focus Rectangles" (Dashed lines on clicks)
         style_init = ttk.Style()
@@ -3230,17 +3241,27 @@ class PointageWindow(ttk.Toplevel):
                 ))
             return cols, rows
         finally:
-            self._loading_records = False
+            # NOTE: _loading_records is NOT cleared here. It stays True until
+            # _finalize_fetch_records (or _on_fetch_error) finishes updating
+            # the UI, preventing a race condition where multiple successive
+            # rebuilds cascade (the background thread sets False, then
+            # _finalize_fetch_records starts, but _deferred_reload_records
+            # fires in between and starts another fetch → 5+ Tableview rebuilds
+            # → grid becomes unresponsive with item='' for all clicks).
+            pass
 
     def _finalize_fetch_records(self, result):
         """Updates UI after data load."""
-        cols, rows = result
-        self._update_records_table_ui(cols, rows)
-        if hasattr(self, "_records_meta_lbl"):
-            self._records_meta_lbl.configure(text=f"Refreshed: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
-        self._transfer_status.configure(text=f"✅ Loaded {len(rows)} records.", fg=SUCCESS_EMERALD)
-        self._progress_var.set(100)
-        self.master.after(2000, lambda: self._safe_pack_forget("_prog_frame"))
+        try:
+            cols, rows = result
+            self._update_records_table_ui(cols, rows)
+            if hasattr(self, "_records_meta_lbl"):
+                self._records_meta_lbl.configure(text=f"Refreshed: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+            self._transfer_status.configure(text=f"✅ Loaded {len(rows)} records.", fg=SUCCESS_EMERALD)
+            self._progress_var.set(100)
+            self.master.after(2000, lambda: self._safe_pack_forget("_prog_frame"))
+        finally:
+            self._loading_records = False
 
 
 
@@ -3567,6 +3588,30 @@ class PointageWindow(ttk.Toplevel):
         self._records_table.view.bind("<B1-Motion>", self._on_drag_motion, add="+")
         self._records_table.view.bind("<ButtonRelease-1>", self._on_drag_release, add="+")
         self._records_table.view.bind("<Escape>", lambda e: self._cancel_move_src())
+
+        # Keyboard editing on the armed punch cell (Excel-like fast corrections).
+        # Bound on BOTH the inner Treeview and the outer Tableview so the
+        # shortcuts still work whichever widget currently holds keyboard focus.
+        self._records_table.view.bind("<KeyPress>", self._on_punch_keypress, add="+")
+        self._records_table.bind("<KeyPress>", self._on_punch_keypress, add="+")
+        self._records_table.view.bind("<Return>", self._on_punch_edit, add="+")
+        self._records_table.bind("<Return>", self._on_punch_edit, add="+")
+        self._records_table.view.bind("<F2>", self._on_punch_edit, add="+")
+        self._records_table.bind("<F2>", self._on_punch_edit, add="+")
+        self._records_table.view.bind("<Tab>", self._on_punch_tab, add="+")
+        self._records_table.bind("<Tab>", self._on_punch_tab, add="+")
+        self._records_table.view.bind("<Shift-Tab>", self._on_punch_tab, add="+")
+        self._records_table.bind("<Shift-Tab>", self._on_punch_tab, add="+")
+        self._records_table.view.bind("<Control-Right>", self._on_punch_ctrl_arrow, add="+")
+        self._records_table.bind("<Control-Right>", self._on_punch_ctrl_arrow, add="+")
+        self._records_table.view.bind("<Control-Left>", self._on_punch_ctrl_arrow, add="+")
+        self._records_table.bind("<Control-Left>", self._on_punch_ctrl_arrow, add="+")
+        self._records_table.view.bind("<Control-Down>", self._on_punch_ctrl_arrow, add="+")
+        self._records_table.bind("<Control-Down>", self._on_punch_ctrl_arrow, add="+")
+        self._records_table.view.bind("<Control-Up>", self._on_punch_ctrl_arrow, add="+")
+        self._records_table.bind("<Control-Up>", self._on_punch_ctrl_arrow, add="+")
+        self._records_table.view.bind("<Delete>", self._on_punch_delete, add="+")
+        self._records_table.bind("<Delete>", self._on_punch_delete, add="+")
         _drag_dbg(f"bindings applied to view {self._records_table.view}")
         
         # Add a refresh mechanism for tags when pagination happens
@@ -3744,9 +3789,12 @@ class PointageWindow(ttk.Toplevel):
 
     def _on_fetch_error(self, error):
         """Handle fetch errors in the UI thread."""
-        for w in self._records_table_frame.winfo_children():
-            w.destroy()
-        ttk.Label(self._records_table_frame, text=f"Error loading records: {error}", bootstyle=DANGER).pack(expand=YES)
+        try:
+            for w in self._records_table_frame.winfo_children():
+                w.destroy()
+            ttk.Label(self._records_table_frame, text=f"Error loading records: {error}", bootstyle=DANGER).pack(expand=YES)
+        finally:
+            self._loading_records = False
 
     def _parse_iso_date(self, formatted_date):
         """Converts UI formatted date (e.g., '10/05/2026' or 'Ven. 19-06-2026') -> '2026-05-10'"""
@@ -3830,6 +3878,16 @@ class PointageWindow(ttk.Toplevel):
 
         if col_name == "STAT":
             self._open_stat_column_menu(event, values, reg_number, emp_name, iso_date, current_stat)
+            return
+
+        if col_name == "NOTE":
+            current_note = str(values[14]).strip() if len(values) > 14 else "-"
+            self._open_note_editor_dialog(
+                reg_number=reg_number,
+                emp_name=emp_name,
+                iso_date=iso_date,
+                current_note=current_note,
+            )
             return
 
         if col_name in ("IN 1", "OUT 1", "IN 2", "OUT 2"):
@@ -4118,6 +4176,10 @@ class PointageWindow(ttk.Toplevel):
         reason_var = ttk.StringVar()
         reason_entry = ttk.Entry(body, textvariable=reason_var, width=30)
         reason_entry.pack(anchor=tk.W, pady=2, ipady=2)
+        # Pre-fill the last-used reason so repeated corrections are faster
+        # (still editable, still audited).
+        if getattr(self, "_last_edit_reason", ""):
+            reason_var.set(self._last_edit_reason)
 
         def _save():
             time_str = time_var.get().strip()
@@ -4128,16 +4190,20 @@ class PointageWindow(ttk.Toplevel):
                 Messagebox.show_error("Please provide a reason for this modification.", "Missing Reason", parent=self)
                 return
             self._transfer_status.configure(text=f"⏳ Saving {col_name}...", fg=ACCENT_BLUE)
-            ok, msg = self.service.add_manual_punch(
+            # Use the DAY_PROGRAM override path (set_punch_slot) instead of
+            # add_manual_punch: on night-shift days the enriched view re-pairs
+            # raw punches chronologically, so a raw-record edit never sticks
+            # visually.  The override pins the slot verbatim — reliable.
+            ok, msg = self.service.set_punch_slot(
                 registration_number=reg_number,
                 punch_date=iso_date,
-                punch_time=time_str,
-                punch_type=punch_type,
+                col_name=col_name,
+                time_val=time_str,
                 admin_name=self._current_admin_name(),
                 reason=reason_var.get().strip(),
-                slot_index=slot_index,
             )
             if ok:
+                self._last_edit_reason = reason_var.get().strip()
                 self._transfer_status.configure(text=f"✅ {msg}", fg=SUCCESS_EMERALD)
                 win.destroy()
                 self._deferred_reload_records()
@@ -4154,6 +4220,101 @@ class PointageWindow(ttk.Toplevel):
         win.bind("<Escape>", lambda e: win.destroy())
         entry.focus_set()
         entry.select_range(0, "end")
+
+    def _open_note_editor_dialog(self, reg_number, emp_name, iso_date, current_note=""):
+        """Edits the NOTE column for an employee/day (DAY_NOTE override).
+
+        The grid's NOTE column comes from ``AttendanceCorrectionLog`` rows with
+        issue_type='DAY_NOTE'.  This dialog writes through
+        ``save_note_correction`` (audited), then reloads the grid so the note
+        shows up immediately.
+        """
+        if not self._is_current_admin():
+            Messagebox.show_error("You do not have permission to modify attendance records.", "Access Denied", parent=self)
+            return
+
+        win = tk.Toplevel(self)
+        win.title("Edit Note")
+        win.configure(bg=MAIN_BG)
+        win.resizable(False, False)
+        win.grab_set()
+        win.transient(self)
+
+        W, H = 440, 330
+        self.update_idletasks()
+        px = self.winfo_rootx() + (self.winfo_width() - W) // 2
+        py = self.winfo_rooty() + (self.winfo_height() - H) // 2
+        win.geometry(f"{W}x{H}+{px}+{py}")
+
+        hdr = tk.Frame(win, bg=ACCENT_BLUE, height=42)
+        hdr.pack(fill=tk.X)
+        hdr.pack_propagate(False)
+        tk.Label(hdr, text="📝  EDIT NOTE", font=("JetBrains Mono", 10, "bold"),
+                 bg=ACCENT_BLUE, fg="#ffffff").pack(side=tk.LEFT, padx=12, pady=0)
+
+        body = tk.Frame(win, bg=MAIN_BG)
+        body.pack(fill=tk.BOTH, expand=True, padx=14, pady=8)
+
+        tk.Label(body, text=f"{emp_name}  (REG {reg_number})  —  {iso_date}",
+                 font=("Space Mono", 8), bg=MAIN_BG, fg=TEXT_MUTED).pack(anchor=tk.W)
+
+        tk.Label(body, text="Note:", font=("Space Mono", 9, "bold"),
+                 bg=MAIN_BG, fg=TEXT_HIGH).pack(anchor=tk.W, pady=(8, 2))
+        note_text = tk.Text(body, width=46, height=5, font=("Space Mono", 9),
+                            bg="#1E222C", fg="#E2E8F0", insertbackground="#E2E8F0",
+                            relief="flat", highlightthickness=1, highlightbackground="#334155")
+        note_text.pack(fill=tk.X, pady=2)
+        note_text.insert("1.0", current_note if current_note and current_note != "-" else "")
+
+        # Quick-pick from the predefined notes list (optional convenience).
+        predefined = self.service.get_predefined_notes()
+        if predefined:
+            tk.Label(body, text="Quick note:", font=("Space Mono", 8, "bold"),
+                     bg=MAIN_BG, fg=TEXT_MUTED).pack(anchor=tk.W, pady=(6, 2))
+            quick_var = ttk.StringVar()
+            quick_cb = ttk.Combobox(body, textvariable=quick_var,
+                                    values=[n["name"] for n in predefined],
+                                    state="readonly", width=40)
+            quick_cb.pack(anchor=tk.W, pady=2)
+            quick_cb.bind("<<ComboboxSelected>>", lambda e: note_text.delete("1.0", "end") or note_text.insert("1.0", quick_var.get()))
+
+        tk.Label(body, text="Reason (required for audit):", font=("Space Mono", 8, "bold"),
+                 bg=MAIN_BG, fg=TEXT_MUTED).pack(anchor=tk.W, pady=(6, 2))
+        reason_var = ttk.StringVar()
+        if getattr(self, "_last_edit_reason", ""):
+            reason_var.set(self._last_edit_reason)
+        reason_entry = ttk.Entry(body, textvariable=reason_var, width=44)
+        reason_entry.pack(anchor=tk.W, pady=2, ipady=2)
+
+        def _save():
+            note = note_text.get("1.0", "end").strip()
+            if not reason_var.get().strip():
+                Messagebox.show_error("Please provide a reason for this modification.", "Missing Reason", parent=self)
+                return
+            self._transfer_status.configure(text="⏳ Saving note...", fg=ACCENT_BLUE)
+            ok, msg = self.service.save_note_correction(
+                reg_number=reg_number,
+                shift_date=iso_date,
+                note_text=note,
+                admin_name=self._current_admin_name(),
+            )
+            if ok:
+                self._last_edit_reason = reason_var.get().strip()
+                self._transfer_status.configure(text=f"✅ Note updated", fg=SUCCESS_EMERALD)
+                win.destroy()
+                self._deferred_reload_records()
+            else:
+                self._transfer_status.configure(text=f"❌ {msg}", fg=DANGER_ROSE)
+                Messagebox.show_error(msg, "Error", parent=self)
+
+        btn_frame = tk.Frame(win, bg=MAIN_BG)
+        btn_frame.pack(fill=tk.X, padx=14, pady=(2, 10))
+        ttk.Button(btn_frame, text="✅ Save", bootstyle=SUCCESS, command=_save, width=10).pack(side=tk.RIGHT)
+        ttk.Button(btn_frame, text="❌ Cancel", bootstyle=SECONDARY, command=win.destroy, width=10).pack(side=tk.RIGHT, padx=4)
+
+        win.bind("<Control-Return>", lambda e: _save())
+        win.bind("<Escape>", lambda e: win.destroy())
+        note_text.focus_set()
 
     def _remove_punch_for_slot(self, reg_number, iso_date, col_name, current_time):
         """Removes one punch slot (IN/OUT 1/2) after a reason + confirmation.
@@ -4203,6 +4364,127 @@ class PointageWindow(ttk.Toplevel):
             Messagebox.show_error(msg, "Error", parent=self)
         self._deferred_reload_records()
 
+    # ── Inline editor (true Excel-like cell editing) ──────────────────────
+    #
+    # An Entry widget is placed directly on top of the cell, covering it
+    # exactly. The admin types the new time, presses Enter → commit, or
+    # Escape → cancel. No popup dialog, no reason field. The reason is
+    # auto-filled from the last edit or defaults to "Quick edit" so the
+    # audit trail is kept without breaking the "type → Enter" flow.
+    # ──────────────────────────────────────────────────────────────────────
+    def _commit_inline_edit(self, col_name, iso_date, reg_number, time_val):
+        """Commits an inline time edit (validates HH:MM, calls service)."""
+        if not time_val:
+            return
+        if not re.fullmatch(r"\d{1,2}:\d{2}(:\d{2})?", time_val):
+            if hasattr(self, "_transfer_status"):
+                self._transfer_status.configure(text="❌ Format: HH:MM", fg=DANGER_ROSE)
+            return
+        reason = getattr(self, "_last_edit_reason", "") or "Quick edit"
+        if not self._punch_slot_for_column(col_name):
+            return
+        self._transfer_status.configure(text=f"⏳ Saving {col_name}...", fg=ACCENT_BLUE)
+        # DAY_PROGRAM override path — reliable even on night-shift days (the
+        # enriched grid re-pairs raw punches, so raw-record edits don't stick).
+        ok, msg = self.service.set_punch_slot(
+            registration_number=reg_number,
+            punch_date=iso_date,
+            col_name=col_name,
+            time_val=time_val,
+            admin_name=self._current_admin_name(),
+            reason=reason,
+        )
+        if ok:
+            self._last_edit_reason = reason
+            self._transfer_status.configure(text=f"✅ {msg}", fg=SUCCESS_EMERALD)
+            self._deferred_reload_records()
+        else:
+            self._transfer_status.configure(text=f"❌ {msg}", fg=DANGER_ROSE)
+
+    def _open_inline_editor(self, col_name, iso_date, reg_number, _emp_name,
+                            initial_text="", current_time=""):
+        """Places an Entry overlay directly on top of the armed cell.
+
+        Type a time, press Enter → save. Press Esc → cancel.
+        Tab commits and moves to the next punch column.
+        """
+        if not hasattr(self, "_records_table"):
+            return
+        view = self._records_table.view
+        item = getattr(self, "_move_src_item", None)
+        if not item:
+            return
+        # Remove any existing inline editor first.
+        if self._inline_entry is not None:
+            try:
+                self._inline_entry.destroy()
+            except Exception:
+                pass
+            self._inline_entry = None
+        col_index = self._all_table_cols.index(col_name)
+        bbox = view.bbox(item, column="#%d" % (col_index + 1))
+        if not bbox:
+            return
+        x, y, w, h = bbox
+        self._cancel_move_src()
+        entry = tk.Entry(
+            view, font=("Space Mono", 10, "bold"),
+            bg="#2A2F3A", fg="#ffffff", insertbackground="#ffffff",
+            highlightthickness=2, highlightcolor=ACCENT_BLUE,
+            highlightbackground=ACCENT_BLUE, relief="flat", bd=0,
+        )
+        self._inline_entry = entry
+        self._inline_col = col_name
+        entry.place(x=x, y=y, width=w, height=h)
+        if initial_text:
+            entry.insert(0, initial_text)
+        elif current_time:
+            entry.insert(0, current_time)
+        entry.select_range(0, "end")
+        entry.focus_set()
+
+        def _commit(event=None):
+            val = entry.get().strip()
+            if entry.winfo_exists():
+                entry.destroy()
+            self._inline_entry = None
+            self._commit_inline_edit(col_name, iso_date, reg_number, val)
+
+        def _cancel(event=None):
+            if entry.winfo_exists():
+                entry.destroy()
+            self._inline_entry = None
+
+        def _commit_and_navigate(delta=1):
+            val = entry.get().strip()
+            if entry.winfo_exists():
+                entry.destroy()
+            self._inline_entry = None
+            self._commit_inline_edit(col_name, iso_date, reg_number, val)
+            # Navigate to the next/prev column after save.
+            self.after(60, lambda d=delta: self._navigate_inline_col(d))
+
+        entry.bind("<Return>", _commit)
+        entry.bind("<Escape>", _cancel)
+        entry.bind("<Tab>", lambda e: _commit_and_navigate(1))
+        entry.bind("<Shift-Tab>", lambda e: _commit_and_navigate(-1))
+
+    def _navigate_inline_col(self, delta):
+        """After an inline edit commit, re-arm the next/prev punch column."""
+        col = getattr(self, "_inline_col", None)
+        if col not in PUNCH_COLS:
+            return
+        item = getattr(self, "_move_src_item", None)
+        if not item:
+            return
+        try:
+            idx = PUNCH_COLS.index(col)
+        except ValueError:
+            return
+        new_idx = idx + delta
+        if 0 <= new_idx < len(PUNCH_COLS):
+            self._arm_cell(item, PUNCH_COLS[new_idx])
+
     # ── Cell move (Excel-style click-to-select + click-to-drop) ────────────
     #
     # How it works:
@@ -4230,6 +4512,7 @@ class PointageWindow(ttk.Toplevel):
         self._drag_src = None
         self._drag_moved = False
         self._move_src_item = None
+        self._move_src_emp = ""
         view.configure(cursor="")
         _drag_dbg("cancel_move_src: source cleared")
         # Reset status bar hint if it was showing the move-mode message
@@ -4341,6 +4624,7 @@ class PointageWindow(ttk.Toplevel):
         }
         self._drag_moved = False
         self._move_src_item = item
+        self._move_src_emp = str(values[3]).strip() if len(values) > 3 else ""
 
         # Highlight the source row in amber so the user can see what is armed
         try:
@@ -4352,15 +4636,13 @@ class PointageWindow(ttk.Toplevel):
             pass
 
         view.configure(cursor="fleur")
-        # Status bar hint
-        if hasattr(self, "_transfer_status"):
-            try:
-                self._transfer_status.configure(
-                    text=f"  SELECTED  {cell}  ({col_name})  REG {reg_number}  —  {self._drag_src['date']}  —  click destination cell or Escape to cancel",
-                    fg="#F59E0B"
-                )
-            except Exception:
-                pass
+        # Give the grid keyboard focus so typing / shortcuts edit the cell.
+        try:
+            view.focus_set()
+        except Exception:
+            pass
+        # Status bar hint (kept in sync by _update_move_hint)
+        self._update_move_hint()
         _drag_dbg(f"press ARMED (1st-click) src={self._drag_src} item={item}")
 
     def _cancel_pending_tooltip(self):
@@ -4522,55 +4804,305 @@ class PointageWindow(ttk.Toplevel):
         reason_entry.focus_set()
 
     def _perform_cell_move(self, src, dst, reason):
-        """Applies the move: set the destination slot, then clear the source slot.
-        Both operations go through the audited service methods."""
-        src_punch_type, src_slot_index = self._punch_slot_for_column(src["col"])
-        dst_punch_type, dst_slot_index = self._punch_slot_for_column(dst["col"])
-        admin = self._current_admin_name()
+        """Applies the move reliably via the DAY_PROGRAM override path.
 
-        # Night-shift punches (before ~04:00) are displayed on the PREVIOUS
-        # logic day. add_manual_punch already adjusts the physical calendar
-        # date so the record lands on the requested DESTINATION logic day —
-        # do NOT bump the date here: bumping double-shifts the destination by
-        # one day (e.g. moving 00:28:43 onto 08-07 would be stored/displayed
-        # on 08-08 instead) and is what broke REG 1921.
+        On night-shift days (e.g. schedule "18 -> 02") the enriched grid
+        re-pairs raw punches chronologically, so the historical
+        add_manual_punch + delete_manual_punch move executes but the grid
+        re-pairs the records and the move *never sticks visually*.  Writing
+        the DAY_PROGRAM override pins the exact slots verbatim (same
+        deterministic mechanism as execution/move_punch_cli.py).
+        """
+        admin = self._current_admin_name()
         dst_punch_date = dst["date"]
 
-        _drag_dbg(f"perform: src={src} dst={dst} dst_punch_date={dst_punch_date} "
-                  f"src_slot=({src_punch_type},{src_slot_index}) dst_slot=({dst_punch_type},{dst_slot_index})")
+        _drag_dbg(f"perform: src={src} dst={dst} dst_punch_date={dst_punch_date}")
 
-        ok, msg = self.service.add_manual_punch(
-            registration_number=dst["reg"],
-            punch_date=dst_punch_date,
-            punch_time=src["time"],
-            punch_type=dst_punch_type,
+        ok, msg = self.service.move_punch_slot(
+            reg_number=src["reg"],
+            src_date=src["date"],
+            src_col=src["col"],
+            dst_date=dst_punch_date,
+            dst_col=dst["col"],
             admin_name=admin,
-            reason=f"Move from REG {src['reg']} {src['date']} {src['col']} — {reason}",
-            slot_index=dst_slot_index,
+            reason=reason,
         )
-        _drag_dbg(f"perform: add_manual_punch ok={ok} msg={msg!r}")
+        _drag_dbg(f"perform: move_punch_slot ok={ok} msg={msg!r}")
         if not ok:
             self._transfer_status.configure(text=f"❌ {msg}", fg=DANGER_ROSE)
             Messagebox.show_error(msg, "Error", parent=self)
             return
-
-        ok2, msg2 = self.service.delete_manual_punch(
-            registration_number=src["reg"],
-            punch_date=src["date"],
-            punch_type=src_punch_type,
-            admin_name=admin,
-            reason=f"Move to REG {dst['reg']} {dst['date']} {dst['col']} — {reason}",
-            slot_index=src_slot_index,
-            target_time=src["time"],
-        )
-        _drag_dbg(f"perform: delete_manual_punch ok={ok2} msg={msg2!r}")
-        if not ok2:
-            self._transfer_status.configure(text=f"⚠️ {msg} | {msg2}", fg=ACCENT_AMBER)
-            Messagebox.show_warning(msg2, "Source Not Cleared", parent=self)
-        else:
-            self._transfer_status.configure(text=f"✅ Moved {src['time']} {src['col']} → {dst['col']}", fg=SUCCESS_EMERALD)
+        self._transfer_status.configure(text=f"✅ Moved {src['time']} {src['col']} → {dst['col']}", fg=SUCCESS_EMERALD)
         _drag_dbg("perform: reloading records...")
         self._deferred_reload_records()
+
+    # ── Keyboard editing (Excel-like fast correction) ──────────────────────
+    #
+    # Works on the armed punch cell (click to arm, like the cell-move flow):
+    #   • type a time character            → edit dialog pre-filled with it
+    #   • Enter / F2                       → edit dialog with current value
+    #   • Tab / Shift+Tab                  → move the cursor to the next/prev
+    #                                        punch column (IN1→OUT1→IN2→OUT2)
+    #   • Ctrl+← / Ctrl+→ / Ctrl+↑ / Ctrl+↓→ move the VALUE to the adjacent
+    #                                        column / row (audit dialog)
+    #   • Delete                           → remove the punch (audit dialog)
+    #   • Escape                           → cancel (existing binding)
+    # ────────────────────────────────────────────────────────────────────────
+    def _update_move_hint(self):
+        """Refreshes the status-bar hint for the armed punch cell."""
+        if not hasattr(self, "_transfer_status"):
+            return
+        try:
+            src = self._drag_src
+            if not src:
+                self._transfer_status.configure(text="", fg="#94A3B8")
+                return
+            shown = src["time"] if src["time"] != "-" else "(empty)"
+            self._transfer_status.configure(
+                text=(
+                    f"  SELECTED  {shown}  ({src['col']})  REG {src['reg']}  —  {src['date']}  —  "
+                    "double-clic = edit  ·  tapez l'heure = éditer  ·  "
+                    "2e clic / Ctrl+→ = déplacer  ·  Tab = colonne suivante  ·  "
+                    "Del = retirer  ·  Esc = annuler"
+                ),
+                fg="#F59E0B",
+            )
+        except Exception:
+            pass
+
+    def _is_subtotal_row(self, item):
+        """True when a treeview item is a subtotal/pad separator row."""
+        try:
+            values = self._records_table.view.item(item, "values")
+            if not values:
+                return True
+            if any("Subtotal" in str(v) for v in values) or "─" in str(values[0]):
+                return True
+        except Exception:
+            return True
+        return False
+
+    def _arm_cell(self, item, col_name, focus=True):
+        """Arms any punch cell (empty or not) as the keyboard/move cursor.
+
+        Reuses the same ``_drag_src``/``_move_src_item`` state as the
+        click-to-move flow so every existing move/edit path works unchanged.
+        Returns True on success.
+        """
+        if not hasattr(self, "_records_table"):
+            return False
+        view = self._records_table.view
+        try:
+            values = view.item(item, "values")
+        except Exception:
+            return False
+        if not values:
+            return False
+        if any("Subtotal" in str(v) for v in values) or "─" in str(values[0]):
+            return False
+        col_index = self._all_table_cols.index(col_name) if col_name in self._all_table_cols else None
+        if col_index is None:
+            return False
+        cell = str(values[col_index]).strip() if len(values) > col_index else "-"
+        if cell in ("-", "", "None"):
+            cell = "-"
+        reg_number = str(values[2]).strip() if len(values) > 2 else "-"
+        if not reg_number or reg_number == "-":
+            return False
+
+        if self._drag_src is not None and self._move_src_item != item:
+            self._cancel_move_src()
+        self._drag_src = {
+            "reg":  reg_number,
+            "date": self._parse_iso_date(str(values[0])),
+            "col":  col_name,
+            "time": cell,
+        }
+        self._drag_moved = False
+        self._move_src_item = item
+        self._move_src_emp = str(values[3]).strip() if len(values) > 3 else ""
+        try:
+            current_tags = list(view.item(item, "tags") or [])
+            if "move_src" not in current_tags:
+                current_tags.append("move_src")
+            view.item(item, tags=current_tags)
+        except Exception:
+            pass
+        view.configure(cursor="fleur")
+        if focus:
+            try:
+                view.focus_set()
+            except Exception:
+                pass
+        self._update_move_hint()
+        _drag_dbg(f"arm_cell item={item} col={col_name} src={self._drag_src}")
+        return True
+
+    def _armed_punch_cell(self):
+        """(src, item, col) of the armed cell if it is a punch column."""
+        src = self._drag_src
+        if not src or src.get("col") not in PUNCH_COLS:
+            return None
+        return (src, self._move_src_item, src["col"])
+
+    def _on_punch_keypress(self, event):
+        """Typing a time character on the armed cell opens the edit dialog."""
+        if event.state & 0x4 or event.state & 0x20000:
+            return  # Ctrl / Alt combos handled by the dedicated bindings
+        if not event.char or not event.char.isprintable():
+            return
+        if event.char.isspace():
+            return
+        if not re.fullmatch(r"[0-9:.\-]", event.char):
+            return
+        armed = self._armed_punch_cell()
+        if not armed:
+            return
+        src = armed[0]
+        emp = getattr(self, "_move_src_emp", "")  # before _cancel_move_src clears it
+        self._open_inline_editor(
+            col_name=src["col"],
+            iso_date=src["date"],
+            reg_number=src["reg"],
+            _emp_name=emp,
+            initial_text=event.char,
+        )
+        return "break"
+
+    def _on_punch_edit(self, event):
+        """Enter / F2 → edit the armed punch cell (current value pre-filled)."""
+        armed = self._armed_punch_cell()
+        if not armed:
+            return
+        src = armed[0]
+        current = src["time"] if src["time"] != "-" else ""
+        emp = getattr(self, "_move_src_emp", "")  # before _cancel_move_src clears it
+        self._open_inline_editor(
+            col_name=src["col"],
+            iso_date=src["date"],
+            reg_number=src["reg"],
+            _emp_name=emp,
+            current_time=current,
+        )
+        return "break"
+
+    def _on_punch_tab(self, event):
+        """Tab / Shift+Tab navigates across IN1→OUT1→IN2→OUT2 (wraps rows)."""
+        if not self._drag_src or not self._move_src_item:
+            return
+        view = self._records_table.view
+        items = list(view.get_children())
+        try:
+            idx = PUNCH_COLS.index(self._drag_src["col"])
+        except ValueError:
+            return
+        shift = -1 if (event.state & 0x1) else 1  # Shift bit
+        item = self._move_src_item
+        dst_idx = idx + shift
+        if 0 <= dst_idx < len(PUNCH_COLS):
+            if self._arm_cell(item, PUNCH_COLS[dst_idx]):
+                return "break"
+            return
+        # Wrap to the previous/next data row, same side of the grid.
+        if item not in items:
+            return
+        row_idx = items.index(item)
+        target = row_idx + shift
+        while 0 <= target < len(items):
+            if not self._is_subtotal_row(items[target]):
+                if self._arm_cell(items[target], PUNCH_COLS[0 if shift == 1 else -1]):
+                    return "break"
+                return
+            target += shift
+        return "break"
+
+    def _on_punch_ctrl_arrow(self, event):
+        """Ctrl+arrow moves the armed VALUE to the adjacent column/row.
+
+        Reuses ``_confirm_cell_move`` (audit reason dialog) + the audited
+        service move — exactly the same path as a drag & drop.
+        """
+        if not self._drag_src or self._drag_src["time"] == "-":
+            return
+        if not self._move_src_item:
+            return
+        src = self._drag_src
+        view = self._records_table.view
+        item = self._move_src_item
+        dst = None
+        keysym = event.keysym
+
+        if keysym in ("Right", "Left"):
+            try:
+                idx = PUNCH_COLS.index(src["col"])
+            except ValueError:
+                return
+            shift = 1 if keysym == "Right" else -1
+            dst_idx = idx + shift
+            if not (0 <= dst_idx < len(PUNCH_COLS)):
+                return
+            dst_col = PUNCH_COLS[dst_idx]
+            values = view.item(item, "values")
+            if not values:
+                return
+            col_index = self._all_table_cols.index(dst_col)
+            target_cell = str(values[col_index]).strip() if len(values) > col_index else "-"
+            if target_cell in ("-", "", "None"):
+                target_cell = "-"
+            reg_number = str(values[2]).strip() if len(values) > 2 else "-"
+            dst = {
+                "reg":  reg_number,
+                "date": self._parse_iso_date(str(values[0])),
+                "col":  dst_col,
+                "time": target_cell,
+            }
+        elif keysym in ("Down", "Up"):
+            items = list(view.get_children())
+            if item not in items:
+                return
+            shift = 1 if keysym == "Down" else -1
+            target = items.index(item) + shift
+            while 0 <= target < len(items):
+                if not self._is_subtotal_row(items[target]):
+                    break
+                target += shift
+            else:
+                return
+            values = view.item(items[target], "values")
+            if not values:
+                return
+            col_index = self._all_table_cols.index(src["col"])
+            target_cell = str(values[col_index]).strip() if len(values) > col_index else "-"
+            if target_cell in ("-", "", "None"):
+                target_cell = "-"
+            reg_number = str(values[2]).strip() if len(values) > 2 else "-"
+            dst = {
+                "reg":  reg_number,
+                "date": self._parse_iso_date(str(values[0])),
+                "col":  src["col"],
+                "time": target_cell,
+            }
+
+        if dst is None:
+            return
+        if (src["reg"], src["date"], src["col"]) == (dst["reg"], dst["date"], dst["col"]):
+            return
+        _drag_dbg(f"ctrl-arrow move src={src} dst={dst}")
+        self._cancel_move_src()
+        self._confirm_cell_move(src, dst)
+        return "break"
+
+    def _on_punch_delete(self, event):
+        """Delete removes the armed punch (audit dialog)."""
+        armed = self._armed_punch_cell()
+        if not armed:
+            return
+        src = armed[0]
+        if src["time"] == "-":
+            return
+        self._cancel_move_src()
+        self._remove_punch_for_slot(src["reg"], src["date"], src["col"], src["time"])
+        return "break"
 
     def _set_status_for_date(self, reg_number, iso_date, new_status):
         """Applies a single status override for one employee/date with status feedback."""
@@ -5215,26 +5747,65 @@ class PointageWindow(ttk.Toplevel):
         )
 
     def _on_record_double_click(self, event):
-        """Opens a read-only Detail Card popup for the selected row.
-        
-        The gridview is fixed and cannot be modified inline.
-        All edits are performed through the dedicated toolbar buttons
-        (FIX / ADD PUNCH, RECALCULATE).
+        """Double-click behavior.
+
+        • Punch column (IN 1 / OUT 1 / IN 2 / OUT 2): opens the quick-punch
+          edit dialog for a fast time correction. Mouse-driven, so it works
+          even when the treeview does not have keyboard focus.
+        • Any other column: opens the read-only Detail Card popup.
         """
-        item = self._records_table.view.identify_row(event.y)
-        if not item:
-            return
+        try:
+            item = self._records_table.view.identify_row(event.y)
+            if not item:
+                _drag_dbg(f"double-click ignored (no row) y={event.y}")
+                return
 
-        values = self._records_table.view.item(item, "values")
-        if not values:
-            return
+            values = self._records_table.view.item(item, "values")
+            if not values:
+                _drag_dbg(f"double-click ignored (no values) item={item!r}")
+                return
 
-        reg_number = str(values[2]).strip() if len(values) > 2 else "-"
-        formatted_date = str(values[0]).strip() if len(values) > 0 else "-"
+            reg_number = str(values[2]).strip() if len(values) > 2 else "-"
+            formatted_date = str(values[0]).strip() if len(values) > 0 else "-"
 
-        # Don't open popup for empty / pad rows
-        if not reg_number or reg_number == "-" or not formatted_date or formatted_date == "-":
-            return
+            # Don't open popup for empty / pad rows
+            if not reg_number or reg_number == "-" or not formatted_date or formatted_date == "-":
+                _drag_dbg(f"double-click ignored (pad row) reg={reg_number!r} date={formatted_date!r}")
+                return
+
+            # Fast path: double-click directly on a punch cell → edit dialog.
+            col_name = self._col_name_at(event.x)
+            _drag_dbg(f"double-click item={item!r} col={col_name!r} reg={reg_number} date={formatted_date}")
+            if col_name in ("IN 1", "OUT 1", "IN 2", "OUT 2"):
+                col_index = self._all_table_cols.index(col_name)
+                cell = str(values[col_index]).strip() if len(values) > col_index else "-"
+                if cell in ("-", "", "None"):
+                    cell = ""
+                emp_name = str(values[3]).strip() if len(values) > 3 else ""
+                iso_date = self._parse_iso_date(formatted_date)
+                _drag_dbg(f"double-click opening dialog col={col_name} reg={reg_number} current_time={cell!r}")
+                self._open_quick_punch_dialog(
+                    reg_number=reg_number,
+                    emp_name=emp_name,
+                    iso_date=iso_date,
+                    col_name=col_name,
+                    current_time=cell,
+                )
+                return
+            if col_name == "NOTE":
+                current_note = str(values[14]).strip() if len(values) > 14 else "-"
+                emp_name = str(values[3]).strip() if len(values) > 3 else ""
+                iso_date = self._parse_iso_date(formatted_date)
+                _drag_dbg(f"double-click NOTE editor reg={reg_number} note={current_note!r}")
+                self._open_note_editor_dialog(
+                    reg_number=reg_number,
+                    emp_name=emp_name,
+                    iso_date=iso_date,
+                    current_note=current_note,
+                )
+                return
+        except Exception as exc:
+            _drag_dbg(f"double-click EXCEPTION: {exc!r}")
 
         self._open_record_detail_card(values)
 

@@ -1,4 +1,3 @@
-#requires -Version 5.1
 <#
 .SYNOPSIS
     Ensures the OmniRoute gateway (npm package "omniroute") is running on
@@ -69,7 +68,6 @@ $RunKeyName = 'OmniRouteGateway'
 $AppDir     = Split-Path -Parent $PSScriptRoot          # project root
 $LogDir     = Join-Path $AppDir '.tmp'
 $LogFile    = Join-Path $LogDir 'omniroute_start.log'
-$ShimArgs   = '--no-open'                                # no browser popup
 
 if (-not $Silent) { function Write-Step([string]$m) { Write-Host "[omniroute] $m" -ForegroundColor Cyan } }
 else { function Write-Step([string]$m) { } }
@@ -87,21 +85,36 @@ function Test-PortListening([int]$p) {
     return [bool](Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue)
 }
 
-function Find-OmnirouteLauncher {
-    $cands = @()
-    $cmd = Get-Command omniroute -ErrorAction SilentlyContinue
-    if ($cmd) { $cands += $cmd.Source }
+function Resolve-OmnirouteLaunch {
+    # Return @{ FilePath; Args } for a launcher Start-Process can actually
+    # execute. The npm-generated omniroute.ps1 shim is deliberately NOT used:
+    # a .ps1 has no "execute" file association on Windows, so Start-Process on
+    # it silently no-ops (server never comes up). Prefer the .cmd shim, else
+    # node.exe + omniroute.mjs directly.
+    $prefix = $null
     try {
-        $prefix = (npm prefix -g 2>$null | Select-Object -First 1).Trim()
-        if ($prefix) {
-            if (Test-Path (Join-Path $prefix 'omniroute.cmd')) { $cands += (Join-Path $prefix 'omniroute.cmd') }
-            elseif (Test-Path (Join-Path $prefix 'omniroute.ps1')) { $cands += (Join-Path $prefix 'omniroute.ps1') }
-            elseif (Test-Path (Join-Path $prefix 'bin\omniroute')) { $cands += (Join-Path $prefix 'bin\omniroute') }
-        }
+        $p = (npm prefix -g 2>$null | Select-Object -First 1).Trim()
+        if ($p -and (Test-Path -LiteralPath $p)) { $prefix = $p }
     }
     catch { }
-    foreach ($c in $cands) {
-        if (Test-Path -LiteralPath $c) { return (Resolve-Path -LiteralPath $c).Path }
+
+    if ($prefix) {
+        $cmd = Join-Path $prefix 'omniroute.cmd'
+        if (Test-Path -LiteralPath $cmd) {
+            return @{ FilePath = (Resolve-Path -LiteralPath $cmd).Path; Args = @('--no-open') }
+        }
+        $mjs = Join-Path $prefix 'node_modules\omniroute\bin\omniroute.mjs'
+        if (Test-Path -LiteralPath $mjs) {
+            $node = (Get-Command node -ErrorAction SilentlyContinue).Source
+            if ($node) {
+                return @{ FilePath = $node; Args = @((Resolve-Path -LiteralPath $mjs).Path, '--no-open') }
+            }
+        }
+    }
+
+    $cmd = Get-Command omniroute.cmd -ErrorAction SilentlyContinue
+    if ($cmd) {
+        return @{ FilePath = $cmd.Source; Args = @('--no-open') }
     }
     return $null
 }
@@ -146,31 +159,57 @@ if (Test-PortListening $Port) {
     Stop-GatewayOnPort $Port
 }
 
-# ── 3. Locate launcher ──────────────────────────────────────────────────────
-$launcher = Find-OmnirouteLauncher
-if (-not $launcher) {
-    Write-Log "ERROR: omniroute not found (npm install -g omniroute required)"
-    if (-not $Silent) { Write-Host '[omniroute] ERROR: omniroute package not installed. Run: npm install -g omniroute' -ForegroundColor Red }
-    exit 1
-}
-Write-Step "Launcher: $launcher"
-
-# ── 4. Launch hidden ────────────────────────────────────────────────────────
-Write-Step "Starting gateway (port $Port)..."
-Start-Process -FilePath $launcher -ArgumentList $ShimArgs -WindowStyle Hidden
-Write-Log "Launched: $launcher $ShimArgs"
-
-# ── 5. Wait for the port ────────────────────────────────────────────────────
-$deadline = (Get-Date).AddSeconds($WaitSeconds)
-while ((Get-Date) -lt $deadline) {
-    Start-Sleep -Milliseconds 500
-    if (Test-PortListening $Port) {
-        Write-Step "Gateway is UP on port $Port."
-        Write-Log "Gateway UP on port $Port"
+# ── 3. Concurrency guard ────────────────────────────────────────────────────
+# The logon autostart (HKCU Run key) and the watchdog scheduled task can both
+# fire near boot. A non-blocking named mutex (per session) makes sure only one
+# instance runs the launch+wait below; any other instance just exits.
+$launchMutex = $null
+try {
+    $launchMutex = New-Object System.Threading.Mutex($false, 'OmniRouteGatewayStartMutex')
+    try {
+        $mutexAcquired = $launchMutex.WaitOne(0)
+    }
+    catch [System.Threading.AbandonedMutexException] {
+        # Previous starter was killed mid-launch; take over.
+        $mutexAcquired = $true
+    }
+    if (-not $mutexAcquired) {
+        Write-Step 'Another instance is already starting the gateway; exiting.'
         exit 0
     }
-}
 
-Write-Log "ERROR: port $Port did not open within ${WaitSeconds}s"
-if (-not $Silent) { Write-Host "[omniroute] ERROR: port $Port did not open within ${WaitSeconds}s - see $LogFile" -ForegroundColor Red }
-exit 1
+    # ── 4. Locate launcher ──────────────────────────────────────────────────
+    $launch = Resolve-OmnirouteLaunch
+    if (-not $launch) {
+        Write-Log "ERROR: omniroute not found (npm install -g omniroute required)"
+        if (-not $Silent) { Write-Host '[omniroute] ERROR: omniroute package not installed. Run: npm install -g omniroute' -ForegroundColor Red }
+        exit 1
+    }
+    Write-Step "Launcher: $($launch.FilePath)"
+
+    # ── 5. Launch hidden ────────────────────────────────────────────────────
+    Write-Step "Starting gateway (port $Port)..."
+    Start-Process -FilePath $launch.FilePath -ArgumentList $launch.Args -WindowStyle Hidden
+    Write-Log "Launched: $($launch.FilePath) $($launch.Args -join ' ')"
+
+    # ── 6. Wait for the port ────────────────────────────────────────────────
+    $deadline = (Get-Date).AddSeconds($WaitSeconds)
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 500
+        if (Test-PortListening $Port) {
+            Write-Step "Gateway is UP on port $Port."
+            Write-Log "Gateway UP on port $Port"
+            exit 0
+        }
+    }
+
+    Write-Log "ERROR: port $Port did not open within ${WaitSeconds}s"
+    if (-not $Silent) { Write-Host "[omniroute] ERROR: port $Port did not open within ${WaitSeconds}s - see $LogFile" -ForegroundColor Red }
+    exit 1
+}
+finally {
+    if ($launchMutex) {
+        try { $launchMutex.ReleaseMutex() } catch { }
+        $launchMutex.Dispose()
+    }
+}

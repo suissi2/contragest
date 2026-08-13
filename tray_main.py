@@ -92,6 +92,11 @@ class TrayAppController:
         except Exception:
             logger.exception("Error reporting not installed")
 
+        # Start hidden; the empty root window is only revealed once a frame
+        # (login or dashboard) actually exists, so we never flash a blank
+        # window. ``open_dashboard`` deiconifies after building the frame.
+        self.root.withdraw()
+
         if show_on_start:
             self.open_dashboard()
 
@@ -135,10 +140,19 @@ class TrayAppController:
         if self.current_frame is None:
             from contragest.features.auth.service import AuthService
             auto_user = AuthService().get_auto_login_user()
-            if auto_user is not None:
-                self.on_login_success(auto_user)
-            else:
-                self.show_login()
+            try:
+                if auto_user is not None:
+                    self.on_login_success(auto_user)
+                else:
+                    self.show_login()
+            except Exception:
+                logger.exception("Could not build the dashboard frame")
+
+        if self.current_frame is None:
+            # The frame failed to build (e.g. DB error). Never show a blank
+            # window — keep it hidden so the user retries via the tray icon.
+            logger.error("open_dashboard: no frame could be built; window kept hidden")
+            return
 
         if not self.root.winfo_exists():
             return
@@ -183,12 +197,20 @@ class TrayAppController:
     def show_dashboard(self) -> None:
         if self.current_frame is not None:
             self.current_frame.destroy()
+            self.current_frame = None
 
         from contragest.features.dashboard.main_window import MainWindow
         self.root.resizable(True, True)
         self._window_state = "dashboard"
-        self.current_frame = MainWindow(
-            self.root, self.current_user, logout_callback=self.show_login)
+        try:
+            frame = MainWindow(
+                self.root, self.current_user, logout_callback=self.show_login)
+        except Exception:
+            logger.exception("Dashboard failed to load — falling back to login")
+            self._window_state = "login"
+            self.show_login()
+            return
+        self.current_frame = frame
         self.current_frame.pack(fill="both", expand="yes")
         self.current_frame.setup_window()
 
@@ -239,7 +261,15 @@ def main() -> int:
     AuthService().sync_legacy_roles()
 
     from contragest.core.logging import setup_logger
-    setup_logger("tray_main")
+    base_logger = setup_logger("tray_main")
+    # Route every tray.* logger to the same file so agent errors are not lost
+    # when running under pythonw.exe (no console to see stderr).
+    for name in ("tray", "tray.agent", "tray.service_monitor",
+                 "tray.service_control", "tray.service_state"):
+        lg = logging.getLogger(name)
+        lg.setLevel(logging.INFO)
+        lg.handlers = list(base_logger.handlers)
+        lg.propagate = False
 
     controller = TrayAppController()
     controller.start(show_on_start=args.show)

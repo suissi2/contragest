@@ -209,6 +209,38 @@ sequenceDiagram
   same information as the icon colour, so colour-blind users are not left
   guessing.
 
+### 3.1 Pointage notifications (when the app is closed)
+
+The tray agent also surfaces **pointage notifications** as Windows balloons
+while the desktop window is closed (reduced to the tray). The 24/7
+`ContragestSync` service writes notification events to a shared JSON feed
+(`logs/service_notifications.json`, same atomic-replace discipline as the
+heartbeat); the tray agent reads it every poll cycle and shows one balloon per
+event, oldest first:
+
+| Category  | Source | Dedup key | Example message |
+|-----------|--------|-----------|-----------------|
+| `ATTENDANCE` | Daily audit (`audit.py`) — missing check-in/out found | `ATTENDANCE:<date>` | `2026-08-10 : 1 check-in manquant(s), 2 check-out manquant(s). REG 123 Ali, …` |
+| `SYNC` | Machine sync failure (`service_engine.py`) | `SYNC:<machine>:<hour-bucket>` | `« Pointeuse Entrée » : timeout` (max 1 / machine / hour) |
+| `CONTRACT` | Contract expiry alert (`alerts.py`) | `CONTRACT:<date>` | `2 contrat(s) expirent dans les 15 jours ; 1 déjà expiré(s).` |
+
+* The dedup keys make writes idempotent across the desktop app and the
+  service (both can run the same scheduler).
+* Shown once per event: `last_seen_notification_id` is persisted in the tray
+  settings, so a restart never replays a balloon.
+* Feed written by `contragest/logic/notifications.py` (`NotificationFeed`),
+  path mirrored by `contragest/tray/paths.py::notifications_file`.
+* Toggle: *Settings → "Show pointage notifications (anomalies, machines,
+  contracts)"* (default on).
+
+> **Deploying new code** — the service and the tray agent are long-running
+> processes that never reload Python from disk. After updating
+> `service_engine.py` / `audit.py` / `alerts.py` / `agent.py`, **restart** the
+> service (`Tray → Restart service`) and the agent (kill the `pythonw.exe
+> tray_main.py` process and relaunch it, or reboot the session). A stale agent
+> silently ignores the notification feed: the feed file grows but no balloon
+> appears.
+
 ---
 
 ## 4. Reliability & monitoring

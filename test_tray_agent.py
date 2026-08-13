@@ -243,3 +243,92 @@ class TestReadHeartbeatFile:
         path.write_text(json.dumps({"state": "RUNNING"}), encoding="utf-8")
         data = read_heartbeat_file(str(path))
         assert data["state"] == "RUNNING"
+
+
+# ── pointage notifications (tray agent) ───────────────────────────────────
+
+class TestAgentPointageNotifications:
+    """TrayAgent._poll_notifications: read the service-written feed and show
+    one balloon at a time, oldest first, exactly once across restarts."""
+
+    def _make_agent(self, tmp_path, monkeypatch, settings=None):
+        from contragest.tray.agent import TrayAgent
+        from contragest.tray.settings import TraySettings
+
+        monkeypatch.setattr("contragest.tray.paths.settings_file",
+                            lambda: str(tmp_path / "tray_config.json"))
+        monkeypatch.setattr("contragest.tray.paths.notifications_file",
+                            lambda: str(tmp_path / "service_notifications.json"))
+        return TrayAgent(
+            root=object(), app=object(),
+            settings=settings or TraySettings())
+
+    def _shown(self, agent):
+        shown = []
+        agent.notify = lambda message, title="Contragest": shown.append((title, message))
+        return shown
+
+    def test_shows_oldest_first_and_persists_progress(self, tmp_path, monkeypatch):
+        agent = self._make_agent(tmp_path, monkeypatch)
+        feed = agent.notification_feed
+        feed.append("ATTENDANCE", "T1", "M1")
+        feed.append("CONTRACT", "T2", "M2")
+
+        shown = self._shown(agent)
+
+        agent._poll_notifications()
+        assert shown == [("T1", "M1")]
+        assert agent.settings.last_seen_notification_id == 1
+
+        agent._poll_notifications()
+        assert shown == [("T1", "M1"), ("T2", "M2")]
+        assert agent.settings.last_seen_notification_id == 2
+
+    def test_no_event_no_call(self, tmp_path, monkeypatch):
+        agent = self._make_agent(tmp_path, monkeypatch)
+        shown = self._shown(agent)
+        agent._poll_notifications()
+        assert shown == []
+
+    def test_restart_does_not_replay(self, tmp_path, monkeypatch):
+        from contragest.tray.settings import TraySettings
+
+        agent = self._make_agent(tmp_path, monkeypatch)
+        agent.notification_feed.append("SYNC", "T", "M")
+        shown = self._shown(agent)
+        agent._poll_notifications()
+        assert len(shown) == 1
+
+        # Fresh agent, same persisted settings file -> no replay.
+        settings = TraySettings.load(str(tmp_path / "tray_config.json"))
+        agent2 = self._make_agent(tmp_path, monkeypatch, settings=settings)
+        shown2 = self._shown(agent2)
+        agent2._poll_notifications()
+        assert shown2 == []
+
+    def test_disabled_setting_skips(self, tmp_path, monkeypatch):
+        from contragest.tray.settings import TraySettings
+
+        agent = self._make_agent(
+            tmp_path, monkeypatch,
+            settings=TraySettings(notify_pointage_alerts=False))
+        agent.notification_feed.append("ATTENDANCE", "T", "M")
+        shown = self._shown(agent)
+        agent._poll_notifications()
+        assert shown == []
+
+    def test_settings_roundtrip_includes_new_fields(self, tmp_path):
+        from contragest.tray.settings import TraySettings
+
+        path = tmp_path / "tray_config.json"
+        s = TraySettings(notify_pointage_alerts=False, last_seen_notification_id=7)
+        assert s.save(str(path)) is True
+        loaded = TraySettings.load(str(path))
+        assert loaded.notify_pointage_alerts is False
+        assert loaded.last_seen_notification_id == 7
+        # Unknown fields from an old file are still ignored.
+        path.write_text(json.dumps({"notify_pointage_alerts": True,
+                                    "__evil__": "x"}), encoding="utf-8")
+        loaded = TraySettings.load(str(path))
+        assert loaded.notify_pointage_alerts is True
+        assert not hasattr(loaded, "__evil__")

@@ -204,6 +204,10 @@ def run_daily_audit_and_alert(target_date: Optional[str] = None, is_automated: b
     # Persist to DB (as PENDING entries for corrector to resolve)
     _persist_anomalies_to_db(all_issues)
 
+    # Balloon notification via the tray agent (works even when the app is
+    # closed to the tray)
+    _notify_tray_anomalies(all_issues, target_date)
+
     # Email alert
     _send_alert_email(all_issues, target_date)
     
@@ -211,6 +215,40 @@ def run_daily_audit_and_alert(target_date: Optional[str] = None, is_automated: b
         _update_last_audit_state()
         
     logger.info(f"[AUDIT] Audit complete: {len(all_issues)} anomalies logged for {target_date}.")
+
+
+def _notify_tray_anomalies(anomalies: List[Dict], target_date: str):
+    """Writes a summary notification event for the tray agent to display.
+
+    One summary event per audited date (dedup key ``ATTENDANCE:<date>``) so
+    the desktop app and the service, which can both run the audit, never
+    produce duplicate balloons.
+    """
+    try:
+        from contragest.logic.notifications import NotificationFeed
+
+        missing_in  = sum(1 for a in anomalies if a["issue_type"] == "MISSING_CHECK_IN")
+        missing_out = sum(1 for a in anomalies if a["issue_type"] == "MISSING_CHECK_OUT")
+
+        parts = []
+        if missing_in:
+            parts.append(f"{missing_in} check-in manquant(s)")
+        if missing_out:
+            parts.append(f"{missing_out} check-out manquant(s)")
+
+        examples = [f"REG {a['reg_number']} {a['employee']}" for a in anomalies[:3]]
+        detail = ", ".join(examples)
+        if len(anomalies) > 3:
+            detail += f" (+{len(anomalies) - 3} autres)"
+
+        NotificationFeed().append(
+            "ATTENDANCE",
+            "Pointage — anomalies détectées",
+            f"{target_date} : " + ", ".join(parts) + ". " + detail,
+            dedup_key=f"ATTENDANCE:{target_date}",
+        )
+    except Exception as e:  # never break the audit on notification errors
+        logger.warning(f"[AUDIT] Could not notify tray: {e}")
 
 
 def _update_last_audit_state():

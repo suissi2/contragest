@@ -28,6 +28,7 @@ class TraySettings:
 
     # Notifications.
     notify_on_change: bool = True      # balloon when the service goes down/up
+    notify_pointage_alerts: bool = True  # balloon for pointage/attendance events
     notify_first_hide: bool = True     # one-time "still running in the tray"
     notify_first_run: bool = True      # one-time welcome balloon at logon
 
@@ -37,6 +38,7 @@ class TraySettings:
 
     # Internal bookkeeping.
     first_run_done: bool = False       # set True after the welcome balloon
+    last_seen_notification_id: int = 0  # last pointage notification shown
 
     # ── helpers ────────────────────────────────────────────────────────────
 

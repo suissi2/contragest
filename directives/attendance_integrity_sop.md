@@ -42,6 +42,14 @@ If the system cannot determine a best fit (e.g., only 1 punch for the day), it w
 
 ## Learnings (2026-07-31)
 
+### Pointage notifications to the tray agent (2026-08-11)
+- The desktop app has **no in-app toast for attendance anomalies** — anomalies only show as red rows in the grid (requires the pointage tab to be open). To notify the user while the app is closed (reduced to tray), the service writes summary events to a JSON feed `logs/service_notifications.json` and the **tray agent** (`contragest/tray/agent.py::_poll_notifications`) shows them as balloons.
+- Writers: `audit._notify_tray_anomalies` (category `ATTENDANCE`, dedup `ATTENDANCE:<date>`), `service_engine._notify_sync_error` (category `SYNC`, dedup `SYNC:<machine>:<hour-bucket>`, 1/machine/hour), `alerts.AlertManager._notify_tray` (category `CONTRACT`, dedup `CONTRACT:<date>`).
+- Dedup keys make appends idempotent even though both the desktop app and the service run the same scheduler — no duplicate balloons.
+- Feed reader tracks progress via `TraySettings.last_seen_notification_id` (persisted), so a tray restart never replays an event. Toggle: tray Settings → "Show pointage notifications".
+- The notification feed path honors `CONTRAGEST_NOTIFICATIONS_PATH` (tests) and must stay in sync between `contragest/logic/notifications.py` and `contragest/tray/paths.py`.
+- After a manual audit (`run_daily_audit_and_alert`) an `ATTENDANCE` event is written too — the tray agent picks it up on the next poll (default 5 s).
+
 ### Active DB
 - The application writes to the **network DB** `\\srv-hotix\pointage\Contragest\contragest.db` (set via `app_config.db_custom_path`). Never use the local `contragest.db` — it is stale.
 - Run scripts through the venv (`\.venv\Scripts\python.exe`) with `sys.path.insert(0, r"...\Contragest")` and always use `PointageService` / `SessionLocal` (never raw sqlite connections).

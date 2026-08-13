@@ -48,6 +48,7 @@ class AlertManager:
             success = False
             if total_found > 0:
                 success = self._send_alert_email(config, expiring, expired)
+                self._notify_tray(len(expiring), len(expired))
             
             if is_automated:
                 if total_found == 0 or success:
@@ -61,6 +62,30 @@ class AlertManager:
             return 0, False
         finally:
             session.close()
+
+    @staticmethod
+    def _notify_tray(expiring: int, expired: int):
+        """Writes a summary notification event for the tray agent to display.
+
+        Deduplicated per day (``CONTRACT:<today>``) so the desktop app and the
+        service never show duplicate balloons.
+        """
+        try:
+            from contragest.logic.notifications import NotificationFeed
+
+            parts = []
+            if expiring:
+                parts.append(f"{expiring} contrat(s) expirent dans les 15 jours")
+            if expired:
+                parts.append(f"{expired} déjà expiré(s)")
+            NotificationFeed().append(
+                "CONTRACT",
+                "Contrats — expiration proche",
+                " ; ".join(parts) + ". Ouvrez l'application pour les consulter.",
+                dedup_key=f"CONTRACT:{datetime.now().date().isoformat()}",
+            )
+        except Exception as e:  # never break the alert flow on notification errors
+            logger.warning(f"Could not notify tray: {e}")
 
     def _send_alert_email(self, config, expiring, expired):
         sections_html = ""

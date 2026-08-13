@@ -160,6 +160,97 @@ class TestOverrideResolution(unittest.TestCase):
         )
         self.assertEqual(count, 0)
 
+    # ── DAY_PROGRAM slot edits (set_punch_slot / move_punch_slot) ──────────
+
+    def _seed_raw_punches(self, reg_date, in1=None, out1=None, in2=None, out2=None):
+        """Insert raw AttendanceRecord rows (the enriched view pairs them)."""
+        slots = [
+            (in1, "check_in", 1), (out1, "check_out", 1),
+            (in2, "check_in", 2), (out2, "check_out", 2),
+        ]
+        for time_str, ptype, _slot in slots:
+            if not time_str:
+                continue
+            self.session.add(AttendanceRecord(
+                employee_id=self.emp.id,
+                zk_user_id=self.reg,
+                punch_time=f"{reg_date} {time_str}:00",
+                punch_type=ptype,
+            ))
+        self.session.commit()
+
+    def test_set_punch_slot_writes_day_program_override(self):
+        """set_punch_slot pins the slot via a DAY_PROGRAM override and the
+        enriched view reads it back verbatim."""
+        self._seed_raw_punches(TEST_DATE, in1="08:00", out1="17:00")
+
+        ok, msg = self.service.set_punch_slot(
+            self.reg, TEST_DATE, "IN 1", "09:30",
+            admin_name="Tester", reason="Adjust",
+        )
+        self.assertTrue(ok, msg)
+
+        prog = self.service._get_day_program(self.reg, TEST_DATE)
+        self.assertEqual(prog["in1"], "09:30:00")
+        self.assertEqual(prog["out1"], "17:00:00")
+
+        records = self.service.get_attendance_records_enriched(
+            reg_filter=self.reg, start_date=TEST_DATE, end_date=TEST_DATE)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["check_in"], "09:30:00")
+
+    def test_set_punch_slot_clears_slot_with_dash(self):
+        """time_val '-' clears the slot in the override."""
+        self._seed_raw_punches(TEST_DATE, in1="08:00", out1="17:00")
+        ok, msg = self.service.set_punch_slot(
+            self.reg, TEST_DATE, "IN 1", "-", admin_name="Tester", reason="Remove")
+        self.assertTrue(ok, msg)
+        prog = self.service._get_day_program(self.reg, TEST_DATE)
+        self.assertEqual(prog["in1"], "-")
+        self.assertEqual(prog["out1"], "17:00:00")
+
+    def test_move_punch_slot_same_day_moves_and_clears(self):
+        """A same-day move updates BOTH slots in the single override (regression
+        test for the two-independent-dicts bug that lost the destination)."""
+        # Simulate a night-shift day: the slots are already pinned by an
+        # override (raw-punch pairing for "18 -> 02" produces OUT 1 / IN 2).
+        ok0, msg0 = self.service.save_day_program(
+            self.reg, TEST_DATE,
+            in1="-", out1="04:07:00", in2="17:44:00", out2="-",
+            admin_name="Tester",
+        )
+        self.assertTrue(ok0, msg0)
+
+        ok, msg = self.service.move_punch_slot(
+            self.reg, TEST_DATE, "IN 2", TEST_DATE, "IN 1",
+            admin_name="Tester", reason="Night shift",
+        )
+        self.assertTrue(ok, msg)
+
+        prog = self.service._get_day_program(self.reg, TEST_DATE)
+        self.assertEqual(prog["in1"], "17:44:00")
+        self.assertEqual(prog["in2"], "-")
+        self.assertEqual(prog["out1"], "04:07:00")
+
+    def test_move_punch_slot_cross_date_writes_both_days(self):
+        """A cross-date move writes overrides on both source and destination."""
+        src = TEST_DATE
+        dst = "2026-08-01"
+        self._seed_raw_punches(src, in1="08:00", out1="17:00")
+        self._seed_raw_punches(dst, in1="09:00", out1="18:00")
+
+        ok, msg = self.service.move_punch_slot(
+            self.reg, src, "IN 1", dst, "OUT 1",
+            admin_name="Tester", reason="Cross-date",
+        )
+        self.assertTrue(ok, msg)
+
+        src_prog = self.service._get_day_program(self.reg, src)
+        self.assertEqual(src_prog["in1"], "-")
+
+        dst_prog = self.service._get_day_program(self.reg, dst)
+        self.assertEqual(dst_prog["out1"], "08:00:00")
+
 
 if __name__ == "__main__":
     unittest.main()

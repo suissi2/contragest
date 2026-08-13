@@ -59,6 +59,8 @@ class TrayAgent:
             max_age=self.settings.heartbeat_max_age_seconds,
             on_change=self._on_service_status_changed,
         )
+        from contragest.logic.notifications import NotificationFeed
+        self.notification_feed = NotificationFeed(path=paths.notifications_file())
 
         self.icon: Optional[pystray.Icon] = None
         self._tray_thread: Optional[threading.Thread] = None
@@ -202,8 +204,38 @@ class TrayAgent:
             return
         try:
             self.monitor.poll_once()
+            self._poll_notifications()
         finally:
             self.root.after(self.settings.poll_interval_ms, self._poll_loop)
+
+    # ── pointage notifications ─────────────────────────────────────────────
+
+    def _poll_notifications(self) -> None:
+        """Show pending pointage notifications one at a time, oldest first.
+
+        The feed is written by the 24/7 service (attendance audit, machine
+        sync errors, contract alerts). ``last_seen_notification_id`` is
+        persisted in the settings so events are shown exactly once, even
+        across agent restarts. One balloon per poll keeps pystray's balloon
+        from being replaced mid-display when several events arrive at once.
+        """
+        if not self.settings.notify_pointage_alerts:
+            return
+        try:
+            events = self.notification_feed.events_since(
+                self.settings.last_seen_notification_id)
+            if not events:
+                return
+            event = events[0]
+            self.settings.last_seen_notification_id = int(event["id"])
+            self.settings.save()
+            logger.info("Showing pointage notification id=%s (%s): %s",
+                        event["id"], event.get("category"), event.get("title"))
+            self.notify(
+                event.get("message") or "",
+                event.get("title") or "Contragest")
+        except Exception:
+            logger.exception("Could not process pointage notifications")
 
     # ── service status handling ─────────────────────────────────────────────
 
@@ -268,6 +300,11 @@ class TrayAgent:
             self.app.open_dashboard()          # login screen or auto-login
         except Exception:
             logger.exception("open_dashboard failed")
+        if getattr(self.app, "current_frame", None) is None:
+            # The dashboard/login frame could not be built (DB error, etc.).
+            # Showing the window would only display an empty, confusing screen.
+            logger.error("Window kept hidden: no dashboard frame could be built")
+            return
         self.root.deiconify()
         self.root.state("zoomed")
         self.root.lift()
@@ -297,7 +334,7 @@ class TrayAgent:
             win.grab_set()
             try:
                 from contragest.core.gui_utils import center_window
-                center_window(win, 380, 260)
+                center_window(win, 380, 300)
             except Exception:
                 pass
 
@@ -306,6 +343,7 @@ class TrayAgent:
             v_min = ttk.BooleanVar(value=self.settings.minimize_to_tray)
             v_close = ttk.BooleanVar(value=self.settings.close_to_tray)
             v_notify = ttk.BooleanVar(value=self.settings.notify_on_change)
+            v_pointage = ttk.BooleanVar(value=self.settings.notify_pointage_alerts)
 
             def _cb(parent, text, var):
                 ttk.Checkbutton(parent, text=text, variable=var,
@@ -314,6 +352,7 @@ class TrayAgent:
             _cb(win, "Minimize hides to the tray instead of the taskbar", v_min)
             _cb(win, "Close (X) hides to the tray instead of quitting", v_close)
             _cb(win, "Show notifications when the service changes state", v_notify)
+            _cb(win, "Show pointage notifications (anomalies, machines, contracts)", v_pointage)
 
             bar = ttk.Frame(win)
             bar.pack(fill="x", side="bottom", padx=12, pady=12)
@@ -322,6 +361,7 @@ class TrayAgent:
                 self.settings.minimize_to_tray = bool(v_min.get())
                 self.settings.close_to_tray = bool(v_close.get())
                 self.settings.notify_on_change = bool(v_notify.get())
+                self.settings.notify_pointage_alerts = bool(v_pointage.get())
                 self.settings.save()
                 win.destroy()
 
