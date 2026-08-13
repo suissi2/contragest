@@ -4328,6 +4328,21 @@ class PointageWindow(ttk.Toplevel):
         ttk.Button(btn_frame, text="✅ Save", bootstyle=SUCCESS, command=_save, width=10).pack(side=tk.RIGHT)
         ttk.Button(btn_frame, text="❌ Cancel", bootstyle=SECONDARY, command=win.destroy, width=10).pack(side=tk.RIGHT, padx=4)
 
+        # The hard-coded H (330px) clips the Save/Cancel buttons when the
+        # quick-pick block renders (content requests ~370px). Re-fit the window
+        # to the actual requested size so the validate buttons are ALWAYS visible.
+        # Cosmetic only — never let a geometry error abort the dialog.
+        try:
+            win.update_idletasks()
+            req_h = win.winfo_reqheight()
+            if req_h > H:
+                H = req_h + 8
+                px = self.winfo_rootx() + (self.winfo_width() - W) // 2
+                py = max(0, self.winfo_rooty() + (self.winfo_height() - H) // 2)
+                win.geometry(f"{W}x{H}+{px}+{py}")
+        except Exception:
+            pass
+
         win.bind("<Control-Return>", lambda e: _save())
         win.bind("<Escape>", lambda e: win.destroy())
         note_text.focus_set()
