@@ -238,6 +238,11 @@ class EmployeeService:
         """
         Bulk import a list of employee record dicts.
 
+        Uses upsert behaviour: if an employee with the same registration_number
+        already exists (active), the record is updated instead of duplicated.
+        If no registration_number is provided, an exact match on
+        (first_name, last_name, department_id) is used to detect duplicates.
+
         Args:
             records: List of dicts with DB field names as keys.
 
@@ -250,6 +255,7 @@ class EmployeeService:
         success = 0
         errors = []
         new_emp_ids = []
+        updated_emp_ids = []
 
         for idx, record in enumerate(records, start=1):
             try:
@@ -264,7 +270,6 @@ class EmployeeService:
                 dept_id = None
                 dept_name = record.pop("department", None)
                 if dept_name:
-                    # Robust lookup: strip both sides and use case-insensitive match
                     search_name = dept_name.strip()
                     dept = self.session.query(Department).all()
                     for d in dept:
@@ -293,34 +298,67 @@ class EmployeeService:
                         except ValueError:
                             record[int_field] = 0
 
-                emp = Employee(
-                    first_name=first_name,
-                    last_name=last_name,
-                    email=record.get("email"),
-                    department_id=dept_id,
-                    role_title=record.get("role_title"),
-                    civility=record.get("civility"),
-                    registration_number=record.get("registration_number"),
-                    function=record.get("function"),
-                    privilege=record.get("privilege"),
-                    dob=record.get("dob"),
-                    hire_date=record.get("hire_date"),
-                    exit_date=record.get("exit_date"),
-                    nationality=record.get("nationality"),
-                    matrimonial_status=record.get("matrimonial_status"),
-                    children_count=record.get("children_count", 0),
-                    mobile_phone=record.get("mobile_phone"),
-                    office_phone=record.get("office_phone"),
-                    address=record.get("address"),
-                    id_card_number=record.get("id_card_number"),
-                    passport=record.get("passport"),
-                    cnss=record.get("cnss"),
-                    gross_salary=record.get("gross_salary"),
-                    net_salary=record.get("net_salary"),
-                )
-                self.session.add(emp)
-                self.session.flush() # Ensure ID is generated
-                new_emp_ids.append(emp.id)
+                reg_num = record.get("registration_number")
+
+                # ── Duplicate detection ───────────────────────────────────
+                existing = None
+                if reg_num:
+                    existing = self.session.query(Employee).filter(
+                        Employee.registration_number == reg_num,
+                        Employee.is_archived == False,
+                    ).first()
+                if not existing:
+                    existing = self.session.query(Employee).filter(
+                        Employee.first_name == first_name,
+                        Employee.last_name == last_name,
+                        Employee.department_id == dept_id,
+                        Employee.is_archived == False,
+                    ).first()
+
+                if existing:
+                    # Update existing employee in-place
+                    for key in ["email", "role_title", "civility", "registration_number",
+                                "function", "privilege", "dob", "hire_date", "exit_date",
+                                "nationality", "matrimonial_status", "children_count",
+                                "mobile_phone", "office_phone", "address",
+                                "id_card_number", "passport", "cnss",
+                                "gross_salary", "net_salary"]:
+                        val = record.get(key)
+                        if val is not None:
+                            setattr(existing, key, val)
+                    if dept_id is not None:
+                        existing.department_id = dept_id
+                    updated_emp_ids.append(existing.id)
+                else:
+                    emp = Employee(
+                        first_name=first_name,
+                        last_name=last_name,
+                        email=record.get("email"),
+                        department_id=dept_id,
+                        role_title=record.get("role_title"),
+                        civility=record.get("civility"),
+                        registration_number=reg_num,
+                        function=record.get("function"),
+                        privilege=record.get("privilege"),
+                        dob=record.get("dob"),
+                        hire_date=record.get("hire_date"),
+                        exit_date=record.get("exit_date"),
+                        nationality=record.get("nationality"),
+                        matrimonial_status=record.get("matrimonial_status"),
+                        children_count=record.get("children_count", 0),
+                        mobile_phone=record.get("mobile_phone"),
+                        office_phone=record.get("office_phone"),
+                        address=record.get("address"),
+                        id_card_number=record.get("id_card_number"),
+                        passport=record.get("passport"),
+                        cnss=record.get("cnss"),
+                        gross_salary=record.get("gross_salary"),
+                        net_salary=record.get("net_salary"),
+                    )
+                    self.session.add(emp)
+                    self.session.flush()  # Ensure ID is generated
+                    new_emp_ids.append(emp.id)
+
                 success += 1
 
             except Exception as e:
@@ -328,8 +366,58 @@ class EmployeeService:
 
         if success > 0:
             self.session.commit()
-            # Trigger background sync for all successfully imported employees
+            # Trigger background sync for new employees
             for eid in new_emp_ids:
+                sync_bus.publish_employee_update(eid)
+            # Re-sync updated employees (machine may need the new data)
+            for eid in updated_emp_ids:
                 sync_bus.publish_employee_update(eid)
 
         return success, errors
+
+    def find_duplicate_employees(self) -> list:
+        """Find employees with identical registration_number (active only).
+
+        Returns a list of dicts: [{registration_number, count, employee_ids}].
+        """
+        from sqlalchemy import func
+
+        rows = (
+            self.session.query(
+                Employee.registration_number,
+                func.count(Employee.id).label("cnt"),
+            )
+            .filter(Employee.is_archived == False, Employee.registration_number.isnot(None), Employee.registration_number != "")
+            .group_by(Employee.registration_number)
+            .having(func.count(Employee.id) > 1)
+            .all()
+        )
+
+        results = []
+        for reg, cnt in rows:
+            ids = [
+                e.id for e in self.session.query(Employee).filter(
+                    Employee.registration_number == reg, Employee.is_archived == False
+                ).all()
+            ]
+            results.append({"registration_number": reg, "count": cnt, "employee_ids": ids})
+        return results
+
+    def remove_duplicate_employees(self) -> int:
+        """Keep the oldest record per registration_number, archive the rest.
+
+        Returns the number of archived duplicates.
+        """
+        duplicates = self.find_duplicate_employees()
+        archived = 0
+        for dup in duplicates:
+            emp_ids = sorted(dup["employee_ids"])  # oldest first (lowest ID)
+            keep_id = emp_ids[0]
+            for remove_id in emp_ids[1:]:
+                emp = self.session.query(Employee).get(remove_id)
+                if emp:
+                    emp.is_archived = True
+                    archived += 1
+        if archived:
+            self.session.commit()
+        return archived

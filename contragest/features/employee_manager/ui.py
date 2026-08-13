@@ -1641,6 +1641,7 @@ class EmployeeManagerWindow(ttk.Toplevel):
         ttk.Button(btn_frame, text=f"📸 CAPTURE PHOTO", bootstyle="info-outline", command=self._capture_photo_for_selected, padding=(7, 3)).pack(side=LEFT, padx=4)
         ttk.Button(btn_frame, text=f"🗂️ BULK IMPORT", bootstyle="info-outline", command=self._bulk_import_photos_personal, padding=(7, 3)).pack(side=LEFT, padx=4)
         ttk.Button(btn_frame, text=f"📂 IMPORT BITMASKS", bootstyle="secondary-outline", command=self._import_bitmasks_from_file, padding=(7, 3)).pack(side=LEFT, padx=4)
+        ttk.Button(btn_frame, text="🧹 CLEAN DUPLICATES", bootstyle="warning-outline", command=self._clean_duplicate_employees, padding=(7, 3)).pack(side=LEFT, padx=4)
 
         sep_btn = ttk.Separator(btn_frame, orient=VERTICAL)
         sep_btn.pack(side=LEFT, fill=Y, padx=6, pady=2)
@@ -2568,6 +2569,31 @@ class EmployeeManagerWindow(ttk.Toplevel):
         except Exception as e:
             logger.error(f"PDF export failed: {e}")
             Messagebox.show_error(f"Export failed: {e}", "Export Error", parent=self)
+
+    def _clean_duplicate_employees(self):
+        """Find and archive duplicate employees (same registration_number)."""
+        duplicates = self.service.find_duplicate_employees()
+        if not duplicates:
+            Messagebox.show_info("No duplicate employees found.", "Clean Duplicates", parent=self)
+            return
+
+        summary_lines = [f"Found {len(duplicates)} duplicate group(s):"]
+        for dup in duplicates:
+            ids_str = ", ".join(str(i) for i in dup["employee_ids"])
+            summary_lines.append(f"  REG {dup['registration_number']}: {dup['count']} copies (IDs: {ids_str})")
+        summary_lines.append(f"\nThe oldest record (lowest ID) will be kept; the rest will be archived.")
+
+        confirmed = Messagebox.yesno(
+            "\n".join(summary_lines) + "\n\nProceed?",
+            "Confirm Duplicate Cleanup",
+            parent=self,
+        )
+        if confirmed != "Yes":
+            return
+
+        archived = self.service.remove_duplicate_employees()
+        Messagebox.show_info(f"Archived {archived} duplicate employee(s).", "Done", parent=self)
+        self.load_all_employees()
 
     def destroy(self):
         try:
