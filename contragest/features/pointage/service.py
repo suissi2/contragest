@@ -3535,10 +3535,22 @@ class PointageService:
 
     def push_employee_to_machine(self, machine_id: int, employee_id: int) -> bool:
         """Upload a single employee to the machine."""
-        machine = self.get_machine(machine_id); emp = self.session.query(Employee).get(employee_id)
-        if not machine or not emp or not emp.registration_number: return False
-        try: zk_uid = int(emp.registration_number)
-        except: return False
+        machine = self.get_machine(machine_id)
+        emp = self.session.query(Employee).get(employee_id)
+        if not machine:
+            logger.warning(f"push_to_machine: machine {machine_id} not found (employee {employee_id}).")
+            return False
+        if not emp:
+            logger.warning(f"push_to_machine: employee {employee_id} not found in DB.")
+            return False
+        if not emp.registration_number:
+            logger.warning(f"push_to_machine: employee {employee_id} ({emp.first_name} {emp.last_name}) has no registration_number — skipped.")
+            return False
+        try:
+            zk_uid = int(emp.registration_number)
+        except (ValueError, TypeError):
+            logger.warning(f"push_to_machine: employee {employee_id} registration_number '{emp.registration_number}' is not numeric — skipped.")
+            return False
         return self.connector.upload_user(machine.ip_address, machine.port, machine.password or "", uid=zk_uid, name=f"{emp.first_name} {emp.last_name}"[:24])
 
     def remove_employee_from_machine(self, machine_id: int, employee_id: int) -> bool:
