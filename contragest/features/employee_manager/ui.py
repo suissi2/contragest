@@ -20,6 +20,10 @@ import cv2
 import numpy as np
 from contragest.core.logging import setup_logger
 from contragest.features.employee_manager import export_utils
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+from fpdf import FPDF
 
 logger = setup_logger("employee_manager_ui")
 
@@ -1638,6 +1642,11 @@ class EmployeeManagerWindow(ttk.Toplevel):
         ttk.Button(btn_frame, text=f"🗂️ BULK IMPORT", bootstyle="info-outline", command=self._bulk_import_photos_personal, padding=(7, 3)).pack(side=LEFT, padx=4)
         ttk.Button(btn_frame, text=f"📂 IMPORT BITMASKS", bootstyle="secondary-outline", command=self._import_bitmasks_from_file, padding=(7, 3)).pack(side=LEFT, padx=4)
 
+        sep_btn = ttk.Separator(btn_frame, orient=VERTICAL)
+        sep_btn.pack(side=LEFT, fill=Y, padx=6, pady=2)
+        ttk.Button(btn_frame, text="📥 EXCEL", bootstyle="success-outline", command=self._export_selected_excel, padding=(7, 3)).pack(side=LEFT, padx=4)
+        ttk.Button(btn_frame, text="📄 PDF", bootstyle="danger-outline", command=self._export_selected_pdf, padding=(7, 3)).pack(side=LEFT, padx=4)
+
         # Container for split view
         self._personnel_paned = ttk.Panedwindow(parent, orient=HORIZONTAL)
         self._personnel_paned.pack(fill=BOTH, expand=YES, pady=3, padx=10)
@@ -2352,6 +2361,158 @@ class EmployeeManagerWindow(ttk.Toplevel):
             self.after(0, self._on_personnel_select)
 
         threading.Thread(target=run_import, daemon=True).start()
+
+    def _get_personnel_export_rows(self):
+        """Return selected table rows, or all rows if none selected.
+
+        Each row is a dict with keys: id, reg_number, employee, department,
+        status.  Falls back gracefully when the table is empty.
+        """
+        if not self._personnel_table:
+            return []
+        view = self._personnel_table.view
+        sel = view.selection()
+        items = sel if sel else view.get_children()
+        rows = []
+        for iid in items:
+            vals = view.item(iid, "values")
+            if len(vals) < 5:
+                continue
+            rows.append({
+                "id": str(vals[0]),
+                "reg_number": str(vals[1]),
+                "employee": str(vals[2]),
+                "department": str(vals[3]),
+                "status": str(vals[4]),
+            })
+        return rows
+
+    def _export_selected_excel(self):
+        """Export selected (or all) employees to an Excel workbook."""
+        rows = self._get_personnel_export_rows()
+        if not rows:
+            Messagebox.show_info("No data to export.", "Export", parent=self)
+            return
+
+        default_name = f"employees_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        path = filedialog.asksaveasfilename(
+            defaultextension=".xlsx",
+            filetypes=[("Excel", "*.xlsx"), ("All files", "*.*")],
+            initialfile=default_name,
+            title="Export to Excel",
+            parent=self,
+        )
+        if not path:
+            return
+
+        try:
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Employees"
+
+            headers = ["ID", "Reg Number", "Employee", "Department", "Status"]
+            col_widths = [8, 14, 30, 22, 24]
+
+            header_font = Font(name="Calibri", bold=True, color="FFFFFF", size=11)
+            header_fill = PatternFill(start_color=getattr(DesignTokens, "SECONDARY", "#1E293B").lstrip("#"),
+                                     end_color=getattr(DesignTokens, "SECONDARY", "#1E293B").lstrip("#"),
+                                     fill_type="solid")
+            header_align = Alignment(horizontal="center", vertical="center")
+            thin_border = Border(
+                left=Side(style="thin"), right=Side(style="thin"),
+                top=Side(style="thin"), bottom=Side(style="thin"),
+            )
+
+            for col_idx, (h, w) in enumerate(zip(headers, col_widths), 1):
+                cell = ws.cell(row=1, column=col_idx, value=h)
+                cell.font = header_font
+                cell.fill = header_fill
+                cell.alignment = header_align
+                cell.border = thin_border
+                ws.column_dimensions[get_column_letter(col_idx)].width = w
+
+            data_font = Font(name="Calibri", size=10)
+            for r_idx, row in enumerate(rows, 2):
+                for c_idx, key in enumerate(["id", "reg_number", "employee", "department", "status"], 1):
+                    cell = ws.cell(row=r_idx, column=c_idx, value=row[key])
+                    cell.font = data_font
+                    cell.border = thin_border
+                    cell.alignment = Alignment(vertical="center")
+
+            ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{len(rows)+1}"
+            ws.freeze_panes = "A2"
+
+            wb.save(path)
+            Messagebox.show_info(f"Exported {len(rows)} employees to Excel.\n{path}", "Export Success", parent=self)
+        except Exception as e:
+            logger.error(f"Excel export failed: {e}")
+            Messagebox.show_error(f"Export failed: {e}", "Export Error", parent=self)
+
+    def _export_selected_pdf(self):
+        """Export selected (or all) employees to a PDF report."""
+        rows = self._get_personnel_export_rows()
+        if not rows:
+            Messagebox.show_info("No data to export.", "Export", parent=self)
+            return
+
+        default_name = f"employees_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        path = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF", "*.pdf"), ("All files", "*.*")],
+            initialfile=default_name,
+            title="Export to PDF",
+            parent=self,
+        )
+        if not path:
+            return
+
+        try:
+            class EmployeePDF(FPDF):
+                def header(self):
+                    self.set_font("Helvetica", "B", 14)
+                    self.cell(0, 10, "Employee Report", align="C", new_x="LMARGIN", new_y="NEXT")
+                    self.set_font("Helvetica", "", 9)
+                    self.cell(0, 6, datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+                              align="C", new_x="LMARGIN", new_y="NEXT")
+                    self.ln(4)
+
+                def footer(self):
+                    self.set_y(-15)
+                    self.set_font("Helvetica", "I", 8)
+                    self.cell(0, 10, f"Page {self.page_no()}/{{nb}}", align="C")
+
+            pdf = EmployeePDF(orientation="L", unit="mm", format="A4")
+            pdf.alias_nb_pages()
+            pdf.add_page()
+
+            headers = ["ID", "Reg Number", "Employee", "Department", "Status"]
+            col_widths = [18, 30, 80, 55, 60]
+
+            pdf.set_font("Helvetica", "B", 10)
+            pdf.set_fill_color(30, 41, 59)
+            pdf.set_text_color(255, 255, 255)
+            for h, w in zip(headers, col_widths):
+                pdf.cell(w, 8, h, border=1, align="C", fill=True)
+            pdf.ln()
+
+            pdf.set_font("Helvetica", "", 9)
+            pdf.set_text_color(0, 0, 0)
+            fill = False
+            for row in rows:
+                if fill:
+                    pdf.set_fill_color(241, 245, 249)
+                else:
+                    pdf.set_fill_color(255, 255, 255)
+                for key, w in zip(["id", "reg_number", "employee", "department", "status"], col_widths):
+                    pdf.cell(w, 7, str(row[key]), border=1, fill=True)
+                pdf.ln()
+                fill = not fill
+
+            pdf.output(path)
+            Messagebox.show_info(f"Exported {len(rows)} employees to PDF.\n{path}", "Export Success", parent=self)
+        except Exception as e:
+            logger.error(f"PDF export failed: {e}")
+            Messagebox.show_error(f"Export failed: {e}", "Export Error", parent=self)
 
     def destroy(self):
         try:
