@@ -66,6 +66,21 @@ class PointageService:
     def get_machine(self, machine_id: int) -> Optional[AttendanceMachine]:
         return self.session.query(AttendanceMachine).get(machine_id)
 
+    def set_machine_active(self, machine_id: int, active: bool) -> Optional[AttendanceMachine]:
+        """Activate or deactivate an attendance machine.
+
+        Deactivated machines are skipped by background syncs, auto time-sync
+        and schedule pushes.  Returns the updated machine, or None if the
+        machine id does not exist.
+        """
+        machine = self.session.query(AttendanceMachine).get(machine_id)
+        if not machine:
+            return None
+        machine.is_active = bool(active)
+        self.session.commit()
+        logger.info(f"Machine '{machine.name}' (id={machine_id}) {'activated' if active else 'deactivated'}.")
+        return machine
+
     def save_machine(self, data: Dict[str, Any], machine_id: Optional[int] = None) -> AttendanceMachine:
         """Create or update an attendance machine."""
         if machine_id:

@@ -851,6 +851,10 @@ class PointageWindow(ttk.Toplevel):
             btn_frame, text="🔄 REBOOT", bootstyle="outline-danger",
             command=self._reboot_machine, padding=(7, 3)
         ).pack(side=LEFT, padx=4)
+        ttk.Button(
+            btn_frame, text="⏻ TOGGLE ACTIVE", bootstyle="warning-outline",
+            command=self._toggle_machine_active, padding=(7, 3)
+        ).pack(side=LEFT, padx=4)
 
         # Auto Reboot options
         auto_row = len(fields) + 2
@@ -953,11 +957,12 @@ class PointageWindow(ttk.Toplevel):
         ]
         rows = []
         for m in machines:
-            # We initialize status/stats as placeholders unless recently tested
+            # Show config state (active/inactive); connectivity status is set after a test
+            state = "Active" if m.is_active else "Inactive"
             rows.append((
                 m.id, 
                 m.name, 
-                "Unknown", 
+                state, 
                 m.machine_number or 1,
                 m.comm_type or "Ethernet",
                 m.baud_rate or 115200,
@@ -992,6 +997,7 @@ class PointageWindow(ttk.Toplevel):
         # Note: 'Online' and 'Offline' are the literals we'll inject into the 'State' column
         self._machine_table.view.tag_configure('online', foreground="#10B981", font=("Space Mono", 9, "bold")) # Emerald
         self._machine_table.view.tag_configure('offline', foreground="#EF4444", font=("Space Mono", 9, "bold")) # Rose
+        self._machine_table.view.tag_configure('inactive', foreground="#64748B", font=("Space Mono", 9, "bold")) # Slate
 
         # Trigger background status check
         threading.Thread(target=self._check_machines_status, daemon=True).start()
@@ -1013,7 +1019,21 @@ class PointageWindow(ttk.Toplevel):
             
             for m in machines:
                 if not self.winfo_exists(): break
-                
+
+                # Inactive machines are deactivated — keep the "Inactive" state, don't ping
+                if not m.is_active:
+                    def set_inactive(mid=m.id):
+                        if not self._machine_table: return
+                        for item in self._machine_table.view.get_children():
+                            values = self._machine_table.view.item(item, "values")
+                            if values and int(values[0]) == mid:
+                                new_values = list(values)
+                                new_values[2] = "Inactive"
+                                self._machine_table.view.item(item, values=new_values, tags=("inactive",))
+                                break
+                    self.after(0, set_inactive)
+                    continue
+
                 # Ping check
                 online = svc.connector.ping(m.ip_address)
                 status_text = "Online" if online else "Offline"
@@ -6800,6 +6820,43 @@ class PointageWindow(ttk.Toplevel):
             Messagebox.show_info(f"'{name}': {msg}", "Reboot Complete", parent=self)
         else:
             Messagebox.show_error(f"'{name}': {msg}", "Reboot Failed", parent=self)
+
+    # ── Machine Active Toggle ─────────────────────────────────────────────
+
+    def _toggle_machine_active(self):
+        """Toggle the selected machine between active and inactive."""
+        if not self.selected_machine_id:
+            Messagebox.show_warning("Select a machine first.", "No Selection", parent=self)
+            return
+        machine = self.service.get_machine(self.selected_machine_id)
+        if not machine:
+            Messagebox.show_error("Machine not found.", "Error", parent=self)
+            return
+
+        new_state = not bool(machine.is_active)
+        action = "activate" if new_state else "deactivate"
+        ans = Messagebox.show_question(
+            f"{'Enable' if new_state else 'Disable'} machine '{machine.name}' "
+            f"({machine.ip_address})?\n\n"
+            f"{'Active machines participate in syncs, time sync and schedule pushes.' if new_state else 'Inactive machines are skipped by background syncs, time sync and schedule pushes.'}",
+            "Confirm Machine State",
+            buttons=["Cancel:secondary", f"Yes:info" if new_state else "Yes:danger"],
+            parent=self,
+        )
+        if ans != "Yes":
+            return
+
+        updated = self.service.set_machine_active(self.selected_machine_id, new_state)
+        if not updated:
+            Messagebox.show_error("Failed to update machine state.", "Error", parent=self)
+            return
+
+        self._machine_status.configure(
+            text=f"✅ Machine '{updated.name}' is now {'ACTIVE' if new_state else 'INACTIVE'}",
+            bootstyle=SUCCESS if new_state else WARNING,
+        )
+        self._log_machine(f"⏻ Machine '{updated.name}' {'activated' if new_state else 'deactivated'}.")
+        self._load_machines()
 
     # ═══════════════════════════════════════════════════════════════════════
     #  TAB - STATUS OF DAYS
