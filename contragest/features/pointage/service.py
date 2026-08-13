@@ -3738,6 +3738,7 @@ class PointageService:
                 s += 1
             else:
                 f += 1
+                logger.warning(f"ensure_employee_synced: employee {employee_id} failed on machine '{m.name}' ({m.ip_address}:{m.port})")
         return s, f
 
     def sync_schedule_to_machines(

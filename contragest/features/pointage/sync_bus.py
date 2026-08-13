@@ -93,7 +93,9 @@ class SyncBus:
         success = False
         try:
             success_count, failed_count = service.ensure_employee_synced(emp_id, m_id)
-            success = (failed_count == 0) # Only consider fully successful if no failures, for retry purposes
+            # Consider a sync successful if at least one machine accepted the employee.
+            # An unreachable machine is a config issue, not a retryable data error.
+            success = (success_count > 0 or failed_count == 0)
             if not success:
                 logger.warning(f"Sync partial for employee {emp_id}: {success_count} ok, {failed_count} failed")
         except Exception as e:
