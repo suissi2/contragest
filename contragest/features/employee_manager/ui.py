@@ -1647,6 +1647,15 @@ class EmployeeManagerWindow(ttk.Toplevel):
         ttk.Button(btn_frame, text="📥 EXCEL", bootstyle="success-outline", command=self._export_selected_excel, padding=(7, 3)).pack(side=LEFT, padx=4)
         ttk.Button(btn_frame, text="📄 PDF", bootstyle="danger-outline", command=self._export_selected_pdf, padding=(7, 3)).pack(side=LEFT, padx=4)
 
+        # Selection toolbar (lives outside the table frame so it survives syncs)
+        sel_tool = ttk.Frame(parent)
+        sel_tool.pack(fill=X, pady=(3, 0), padx=10)
+        ttk.Button(sel_tool, text="☑️ SELECT ALL", bootstyle=INFO, command=self._select_all_personnel, padding=(6, 2)).pack(side=LEFT, padx=2)
+        ttk.Button(sel_tool, text="⬜ DESELECT ALL", bootstyle=SECONDARY, command=self._deselect_all_personnel, padding=(6, 2)).pack(side=LEFT, padx=2)
+        ttk.Button(sel_tool, text="🔄 INVERT", bootstyle="secondary-outline", command=self._invert_personnel_selection, padding=(6, 2)).pack(side=LEFT, padx=2)
+        self._selection_count_lbl = ttk.Label(sel_tool, text="0 / 0 selected", font=("Inter", 8), foreground=TEXT_MUTED)
+        self._selection_count_lbl.pack(side=LEFT, padx=8)
+
         # Container for split view
         self._personnel_paned = ttk.Panedwindow(parent, orient=HORIZONTAL)
         self._personnel_paned.pack(fill=BOTH, expand=YES, pady=3, padx=10)
@@ -2103,8 +2112,54 @@ class EmployeeManagerWindow(ttk.Toplevel):
         if self._personnel_table:
             self._on_personnel_select()
 
+    def _update_selection_count(self):
+        """Refresh the 'N / M selected' label from the current table selection."""
+        if not hasattr(self, "_selection_count_lbl"):
+            return
+        try:
+            total = len(self._personnel_table.view.get_children()) if self._personnel_table else 0
+            selected = len(self._personnel_table.view.selection()) if self._personnel_table else 0
+            self._selection_count_lbl.configure(text=f"{selected} / {total} selected")
+        except Exception:
+            pass
+
+    def _select_all_personnel(self):
+        """Select every row in the personnel table."""
+        if not self._personnel_table:
+            return
+        view = self._personnel_table.view
+        items = view.get_children()
+        if items:
+            view.selection_set(*items)
+        self._on_personnel_select()
+
+    def _deselect_all_personnel(self):
+        """Clear the personnel table selection."""
+        if not self._personnel_table:
+            return
+        view = self._personnel_table.view
+        if view.selection():
+            view.selection_remove(*view.selection())
+        self._on_personnel_select()
+
+    def _invert_personnel_selection(self):
+        """Invert the current personnel table selection."""
+        if not self._personnel_table:
+            return
+        view = self._personnel_table.view
+        current = set(view.selection())
+        all_items = view.get_children()
+        # The treeview's selection_* calls take items as positional args.
+        if current:
+            view.selection_remove(*current)
+        new_items = [iid for iid in all_items if iid not in current]
+        if new_items:
+            view.selection_set(*new_items)
+        self._on_personnel_select()
+
     def _on_personnel_select(self, event=None):
         if not self._personnel_table: return
+        self._update_selection_count()
         sel = self._personnel_table.view.selection()
         if not sel: return
         
