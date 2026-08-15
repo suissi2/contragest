@@ -851,10 +851,12 @@ class PointageWindow(ttk.Toplevel):
             btn_frame, text="🔄 REBOOT", bootstyle="outline-danger",
             command=self._reboot_machine, padding=(7, 3)
         ).pack(side=LEFT, padx=4)
-        ttk.Button(
-            btn_frame, text="⏻ TOGGLE ACTIVE", bootstyle="warning-outline",
+# Store reference to toggle button for dynamic styling
+        self._toggle_active_btn = ttk.Button(
+            btn_frame, text="[ON] ACTIVE", bootstyle=SUCCESS,
             command=self._toggle_machine_active, padding=(7, 3)
-        ).pack(side=LEFT, padx=4)
+        )
+        self._toggle_active_btn.pack(side=LEFT, padx=4)
 
         # Auto Reboot options
         auto_row = len(fields) + 2
@@ -1098,6 +1100,13 @@ class PointageWindow(ttk.Toplevel):
 
             # Clear status
             self._machine_status.configure(text="", bootstyle=SECONDARY)
+            
+            # Update toggle button based on machine state
+            if hasattr(self, '_toggle_active_btn') and self._toggle_active_btn.winfo_exists():
+                if machine.is_active:
+                    self._toggle_active_btn.configure(text="[ON] ACTIVE", bootstyle=SUCCESS)
+                else:
+                    self._toggle_active_btn.configure(text="[OFF] INACTIVE", bootstyle=DANGER)
         else:
             # Fallback to pure table values if DB fetch failed
             self._machine_vars["machine_name"].set(values[1])
@@ -1113,6 +1122,14 @@ class PointageWindow(ttk.Toplevel):
             self._auto_reboot_var.set(False)
             self._auto_reboot_hour_var.set("03")
             self._auto_reboot_min_var.set("00")
+            
+            # Update toggle button based on table state (values[2] is State column)
+            if hasattr(self, '_toggle_active_btn') and self._toggle_active_btn.winfo_exists():
+                is_active = (values[2] == "Active")
+                if is_active:
+                    self._toggle_active_btn.configure(text="[ON] ACTIVE", bootstyle=SUCCESS)
+                else:
+                    self._toggle_active_btn.configure(text="[OFF] INACTIVE", bootstyle=DANGER)
 
     def _test_connection(self):
         """Tests connection to the machine in the background via TaskManager."""
@@ -6821,7 +6838,7 @@ class PointageWindow(ttk.Toplevel):
         else:
             Messagebox.show_error(f"'{name}': {msg}", "Reboot Failed", parent=self)
 
-    # ── Machine Active Toggle ─────────────────────────────────────────────
+# ── Machine Active Toggle ─────────────────────────────────────────────
 
     def _toggle_machine_active(self):
         """Toggle the selected machine between active and inactive."""
@@ -6851,11 +6868,18 @@ class PointageWindow(ttk.Toplevel):
             Messagebox.show_error("Failed to update machine state.", "Error", parent=self)
             return
 
+        # Update the toggle button appearance based on new state
+        if hasattr(self, '_toggle_active_btn') and self._toggle_active_btn.winfo_exists():
+            if new_state:
+                self._toggle_active_btn.configure(text="[ON] ACTIVE", bootstyle=SUCCESS)
+            else:
+                self._toggle_active_btn.configure(text="[OFF] INACTIVE", bootstyle=DANGER)
+
         self._machine_status.configure(
-            text=f"✅ Machine '{updated.name}' is now {'ACTIVE' if new_state else 'INACTIVE'}",
+            text=f"��� Machine '{updated.name}' is now {'ACTIVE' if new_state else 'INACTIVE'}",
             bootstyle=SUCCESS if new_state else WARNING,
         )
-        self._log_machine(f"⏻ Machine '{updated.name}' {'activated' if new_state else 'deactivated'}.")
+        self._log_machine(f"��� Machine '{updated.name}' {'activated' if new_state else 'deactivated'}.")
         self._load_machines()
 
     # ═══════════════════════════════════════════════════════════════════════
@@ -7945,9 +7969,10 @@ class PointageWindow(ttk.Toplevel):
             if not holiday_obj:
                 return
             confirm = Messagebox.show_question(
-                f"Supprimer '{holiday_obj.name}' ?", "Confirmer la suppression", parent=dialog
+                f"Supprimer '{holiday_obj.name}' ?", "Confirmer la suppression", parent=dialog,
+                buttons=["Non:secondary", "Oui:danger"]
             )
-            if confirm == "Yes":
+            if confirm == "Oui":
                 try:
                     self.service.delete_public_holiday(holiday_obj.id)
                     self._refresh_calendar_view()
