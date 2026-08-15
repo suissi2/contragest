@@ -1102,11 +1102,7 @@ class PointageWindow(ttk.Toplevel):
             self._machine_status.configure(text="", bootstyle=SECONDARY)
             
             # Update toggle button based on machine state
-            if hasattr(self, '_toggle_active_btn') and self._toggle_active_btn.winfo_exists():
-                if machine.is_active:
-                    self._toggle_active_btn.configure(text="[ON] ACTIVE", bootstyle=SUCCESS)
-                else:
-                    self._toggle_active_btn.configure(text="[OFF] INACTIVE", bootstyle=DANGER)
+            self._sync_toggle_active_btn(machine.is_active)
         else:
             # Fallback to pure table values if DB fetch failed
             self._machine_vars["machine_name"].set(values[1])
@@ -1124,12 +1120,7 @@ class PointageWindow(ttk.Toplevel):
             self._auto_reboot_min_var.set("00")
             
             # Update toggle button based on table state (values[2] is State column)
-            if hasattr(self, '_toggle_active_btn') and self._toggle_active_btn.winfo_exists():
-                is_active = (values[2] == "Active")
-                if is_active:
-                    self._toggle_active_btn.configure(text="[ON] ACTIVE", bootstyle=SUCCESS)
-                else:
-                    self._toggle_active_btn.configure(text="[OFF] INACTIVE", bootstyle=DANGER)
+            self._sync_toggle_active_btn(values[2] == "Active")
 
     def _test_connection(self):
         """Tests connection to the machine in the background via TaskManager."""
@@ -6840,6 +6831,14 @@ class PointageWindow(ttk.Toplevel):
 
 # ── Machine Active Toggle ─────────────────────────────────────────────
 
+    def _sync_toggle_active_btn(self, is_active: bool):
+        """Sync the toggle button label/styling to the given machine state."""
+        if hasattr(self, '_toggle_active_btn') and self._toggle_active_btn.winfo_exists():
+            if is_active:
+                self._toggle_active_btn.configure(text="[ON] ACTIVE", bootstyle=SUCCESS)
+            else:
+                self._toggle_active_btn.configure(text="[OFF] INACTIVE", bootstyle=DANGER)
+
     def _toggle_machine_active(self):
         """Toggle the selected machine between active and inactive."""
         if not self.selected_machine_id:
@@ -6869,17 +6868,13 @@ class PointageWindow(ttk.Toplevel):
             return
 
         # Update the toggle button appearance based on new state
-        if hasattr(self, '_toggle_active_btn') and self._toggle_active_btn.winfo_exists():
-            if new_state:
-                self._toggle_active_btn.configure(text="[ON] ACTIVE", bootstyle=SUCCESS)
-            else:
-                self._toggle_active_btn.configure(text="[OFF] INACTIVE", bootstyle=DANGER)
+        self._sync_toggle_active_btn(new_state)
 
         self._machine_status.configure(
-            text=f"��� Machine '{updated.name}' is now {'ACTIVE' if new_state else 'INACTIVE'}",
+            text=f"✅ Machine '{updated.name}' is now {'ACTIVE' if new_state else 'INACTIVE'}",
             bootstyle=SUCCESS if new_state else WARNING,
         )
-        self._log_machine(f"��� Machine '{updated.name}' {'activated' if new_state else 'deactivated'}.")
+        self._log_machine(f"⏻ Machine '{updated.name}' {'activated' if new_state else 'deactivated'}.")
         self._load_machines()
 
     # ═══════════════════════════════════════════════════════════════════════
