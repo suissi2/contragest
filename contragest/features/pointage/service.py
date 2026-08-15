@@ -4115,6 +4115,120 @@ class PointageService:
         slot = next((s for s in assignment.rotation.slots if s.day_offset == position), None)
         return slot.schedule if slot else None
 
+    def resolve_employee_schedule(
+        self,
+        employee_id: Optional[int],
+        reg_str: Optional[str],
+        target_date,
+        punch_time: Optional[str] = None,
+    ) -> Optional[WorkSchedule]:
+        """
+        Resolve the WorkSchedule that applies to an employee on a given date.
+
+        Resolution order (identical to the enriched grid / ``_get_day_schedules``):
+          1. A DAY_SCHEDULE correction (per-day override from the correction log).
+          2. The employee's active rotating schedule (EmployeeRotation).
+          3. The most recent fixed assignment (EmployeeSchedule) effective on or
+             before the date — plus the previous assignment generation — with
+             same effective_date ties broken by proximity of the punch time to
+             the schedule's start/end.
+
+        If nothing resolves for the punch's own employee row, the lookup falls
+        back to any OTHER employee row sharing the same registration number
+        (preferring a non-archived row, then one with schedule assignments).
+        This covers punches that were linked to an archived duplicate row while
+        the schedule lives on the active row.
+
+        This mirrors ``get_attendance_records_enriched`` so the Real-Time
+        Attendance Log shows the same schedule the enriched grid does.
+
+        Args:
+            employee_id: DB employee id (may be None for orphans).
+            reg_str: registration number string (used for the DAY_SCHEDULE
+                override lookup and for the sibling fallback).
+            target_date: ``date`` or ``"YYYY-MM-DD"`` string.
+            punch_time: optional raw punch timestamp used to break ties when an
+                employee has several schedules sharing the same effective_date.
+
+        Returns:
+            The matching WorkSchedule, or None if none applies.
+        """
+        if employee_id is None:
+            return None
+
+        if isinstance(target_date, str):
+            try:
+                target_date = datetime.strptime(target_date[:10], "%Y-%m-%d").date()
+            except Exception:
+                return None
+
+        # Parse punch_time for the tie-break scoring.
+        p_dt = None
+        if punch_time:
+            try:
+                if "T" in punch_time:
+                    p_dt = datetime.fromisoformat(punch_time.replace("Z", "+00:00"))
+                else:
+                    p_dt = datetime.strptime(punch_time[:19], "%Y-%m-%d %H:%M:%S")
+            except Exception:
+                p_dt = None
+
+        date_str = target_date.isoformat()
+
+        def _resolve(emp_id: int) -> Optional[WorkSchedule]:
+            """Resolve a schedule for one employee row using grid-identical logic."""
+            try:
+                cands = self._get_day_schedules(emp_id, date_str, reg_str or "")
+                if not cands:
+                    return None
+                if len(cands) == 1 or p_dt is None:
+                    return cands[0]
+                return self._pick_best_schedule(cands, [p_dt])
+            except Exception as e:
+                logger.warning(f"resolve_employee_schedule: resolution failed for emp_id={emp_id} date={target_date}: {e}")
+                return None
+
+        # 1. Resolve against the punch's own employee row.
+        sched = _resolve(employee_id)
+        if sched:
+            return sched
+
+        # 2. Fallback: a sibling row with the same registration number.
+        #    Punches are sometimes linked to an archived duplicate row while the
+        #    schedule was entered on the active row (same person, same reg).
+        if reg_str:
+            try:
+                siblings = (
+                    self.session.query(Employee)
+                    .filter(Employee.registration_number == reg_str)
+                    .filter(Employee.id != employee_id)
+                    .all()
+                )
+                if siblings:
+                    # Prefer non-archived rows, then rows with schedule
+                    # assignments, then lowest id for stability.
+                    sched_count = {
+                        s.id: self.session.query(EmployeeSchedule).filter_by(employee_id=s.id).count()
+                        for s in siblings
+                    }
+                    siblings.sort(
+                        key=lambda s: (
+                            bool(s.is_archived),
+                            -sched_count.get(s.id, 0),
+                            s.id,
+                        )
+                    )
+                    for sib in siblings:
+                        sib_sched = _resolve(sib.id)
+                        if sib_sched:
+                            return sib_sched
+            except Exception as e:
+                logger.warning(
+                    f"resolve_employee_schedule: sibling fallback failed for emp_id={employee_id} reg={reg_str}: {e}"
+                )
+
+        return None
+
     def get_rotation_preview(self, rotation_id: int, start_date: date, days: int = 30) -> List[Dict[str, Any]]:
         """
         Generates a calendar preview showing which schedule falls on

@@ -77,3 +77,13 @@ debug_985_out.txt
 debug_rbac*.txt
 email_diag*.txt
 tmp*.txt
+diagnose_export.py
+implementation_plan.md
+
+# --- AI agent tooling ---
+.agents/
+.claude/
+.kilo/
+.kilocode/
+kilo.json
+skills-lock.json

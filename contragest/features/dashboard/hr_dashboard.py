@@ -663,7 +663,11 @@ class HRDashboard(ttk.Frame):
                     if emp_obj.dept_obj: d_name = emp_obj.dept_obj.name
                     elif emp_obj.department: d_name = emp_obj.department
                     
-                # Schedule (Check active assignments for the specific date)
+                # Schedule (Check active assignments for the specific date).
+                # Use the service's authoritative resolver so the Real-Time Log
+                # matches the enriched grid: it covers BOTH fixed
+                # (EmployeeSchedule) and rotating (EmployeeRotation) schedules,
+                # unlike the old code that only scanned emp_obj.assignments.
                 s_name = "-"
                 sched_obj = None
                 p_date = None
@@ -676,48 +680,15 @@ class HRDashboard(ttk.Frame):
                 except:
                     pass
 
-                if emp_obj and hasattr(emp_obj, 'assignments') and emp_obj.assignments and p_date:
-                    try:
-                        # Find assignments effective on or before the punch date, max effective_date
-                        valid_a = [a for a in emp_obj.assignments if a.effective_date <= p_date]
-                        if valid_a:
-                            max_eff = max(a.effective_date for a in valid_a)
-                            candidates = [a.schedule for a in valid_a if a.effective_date == max_eff]
-                            
-                            sched_obj = candidates[0]
-                            if len(candidates) > 1 and p.punch_time:
-                                try:
-                                    scores = []
-                                    if "T" in p.punch_time:
-                                        p_time = datetime.fromisoformat(p.punch_time.replace('Z', '+00:00')).time()
-                                    else:
-                                        time_str = p.punch_time.split()[1] if " " in p.punch_time else p.punch_time
-                                        p_time = datetime.strptime(time_str, "%H:%M:%S" if time_str.count(":") == 2 else "%H:%M").time()
-                                        
-                                    for s in candidates:
-                                        try:
-                                            s_h, s_m = map(int, s.start_time.split(':'))
-                                            e_h, e_m = map(int, s.end_time.split(':'))
-                                            from datetime import datetime as dt_mod, time as dt_time
-                                            dt1 = dt_mod.combine(dt_mod.min, p_time)
-                                            dt_start = dt_mod.combine(dt_mod.min, dt_time(s_h, s_m))
-                                            dt_end = dt_mod.combine(dt_mod.min, dt_time(e_h, e_m))
-                                            
-                                            diff1 = abs((dt1 - dt_start).total_seconds()); min_diff1 = min(diff1, 86400 - diff1)
-                                            diff2 = abs((dt1 - dt_end).total_seconds()); min_diff2 = min(diff2, 86400 - diff2)
-                                            
-                                            score = min(min_diff1, min_diff2)
-                                            scores.append((score, s))
-                                        except:
-                                            scores.append((999999, s))
-                                            
-                                    sched_obj = sorted(scores, key=lambda x: x[0])[0][1]
-                                except:
-                                    pass
-                                    
-                            s_name = sched_obj.name
-                    except:
-                        pass
+                if emp_obj and p_date:
+                    sched_obj = svc.resolve_employee_schedule(
+                        employee_id=emp_obj.id,
+                        reg_str=str(emp_obj.registration_number or ""),
+                        target_date=p_date,
+                        punch_time=p.punch_time,
+                    )
+                    if sched_obj:
+                        s_name = sched_obj.name
                 
                 # Use inference logic to differentiate IN/OUT (since machines often label everything as check_in)
                 # If machine says check_out, we honor it, otherwise we help it guess.
